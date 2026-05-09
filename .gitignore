@@ -1,0 +1,14 @@
+.DS_Store
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+
+# Local analysis artifacts
+*.Rhistory
+
+# Project data and generated outputs
+kuairec_abtest/data/
+kuairec_abtest/output/

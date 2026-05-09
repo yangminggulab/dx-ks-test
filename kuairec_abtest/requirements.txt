@@ -1,0 +1,10 @@
+# 文件用途：定义 KuaiRec AB Test 数据分析项目所需的 Python 依赖包。
+pandas
+numpy
+scipy
+matplotlib
+seaborn
+pymysql
+sqlalchemy
+jupyter
+statsmodels
