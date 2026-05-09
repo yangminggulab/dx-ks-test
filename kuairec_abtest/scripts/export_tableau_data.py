@@ -17,11 +17,13 @@ if str(CURRENT_DIR) not in sys.path:
     sys.path.append(str(CURRENT_DIR))
 
 from ab_test import t_test
+from experiment_config import get_abtest_v1_spec
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "output"
 TABLEAU_OUTPUT_DIR = OUTPUT_DIR / "tableau"
+EXPERIMENT_SPEC = get_abtest_v1_spec()
 
 
 def load_csv(file_path: Path) -> pd.DataFrame:
@@ -247,11 +249,20 @@ def export_tableau_data() -> dict[str, Any]:
 
         manifest = {
             "purpose": "KuaiRec AB Test Tableau 数据层",
+            "experiment_id": EXPERIMENT_SPEC.experiment_id,
+            "experiment_version": EXPERIMENT_SPEC.version,
             "data_sources": {
                 "tableau_kpi_cards.csv": "用于 KPI 卡片和指标摘要展示。",
                 "tableau_group_metrics_long.csv": "用于实验组与对照组指标对比柱状图。",
                 "tableau_segment_metrics_long.csv": "用于用户活跃度分层对比图。",
                 "tableau_user_distribution.csv": "用于完播率分布图、箱线图和用户级筛选分析。",
+            },
+            "depends_on": {
+                "group_summary": str(OUTPUT_DIR / "abtest_v1_group_summary.csv"),
+                "segment_summary": str(OUTPUT_DIR / "abtest_v1_segment_summary.csv"),
+                "user_metrics": str(OUTPUT_DIR / "abtest_v1_user_metrics.csv"),
+                "design_json": str(OUTPUT_DIR / "abtest_v1_design.json"),
+                "run_manifest": str(OUTPUT_DIR / "abtest_v1_run_manifest.json"),
             },
             "paths": outputs,
         }

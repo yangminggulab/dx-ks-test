@@ -8,6 +8,7 @@ __pycache__/
 
 # Local analysis artifacts
 *.Rhistory
+*.twbr
 
 # Project data and generated outputs
 kuairec_abtest/data/

@@ -19,6 +19,7 @@ if str(CURRENT_DIR) not in sys.path:
 from ab_test import chi_square_test, t_test
 from data_loader import load_data
 from db_config import test_connection
+from experiment_config import get_abtest_v1_spec, write_experiment_design_files
 from visualization import (
     plot_completion_rate_distribution,
     plot_group_mean_comparison,
@@ -27,6 +28,7 @@ from visualization import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "output"
+EXPERIMENT_SPEC = get_abtest_v1_spec()
 
 USER_METRICS_QUERY = """
 WITH user_metrics AS (
@@ -298,6 +300,7 @@ def run_first_abtest(alpha: float = 0.05) -> dict[str, Any]:
     """执行第一版离线 AB Test，并输出结果摘要。"""
     try:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        design_outputs = write_experiment_design_files(EXPERIMENT_SPEC, OUTPUT_DIR)
 
         if not test_connection():
             raise ConnectionError("数据库连接失败，无法执行 AB Test。")
@@ -327,10 +330,12 @@ def run_first_abtest(alpha: float = 0.05) -> dict[str, Any]:
         user_metrics_path = OUTPUT_DIR / "abtest_v1_user_metrics.csv"
         group_summary_path = OUTPUT_DIR / "abtest_v1_group_summary.csv"
         segment_summary_path = OUTPUT_DIR / "abtest_v1_segment_summary.csv"
+        exposure_summary_path = OUTPUT_DIR / "abtest_v1_exposure_summary.csv"
 
         user_metrics_df.to_csv(user_metrics_path, index=False, encoding="utf-8")
         group_summary_df.to_csv(group_summary_path, index=False, encoding="utf-8")
         segment_summary_df.to_csv(segment_summary_path, index=False, encoding="utf-8")
+        exposure_summary_df.to_csv(exposure_summary_path, index=False, encoding="utf-8")
 
         distribution_plot_path = plot_completion_rate_distribution(
             user_metrics_df,
@@ -354,16 +359,26 @@ def run_first_abtest(alpha: float = 0.05) -> dict[str, Any]:
             mean_plot_path=mean_plot_path,
         )
 
+        run_manifest_path = OUTPUT_DIR / "abtest_v1_run_manifest.json"
         result = {
+            "experiment_id": EXPERIMENT_SPEC.experiment_id,
+            "experiment_version": EXPERIMENT_SPEC.version,
             "group_summary_path": str(group_summary_path),
             "segment_summary_path": str(segment_summary_path),
             "user_metrics_path": str(user_metrics_path),
+            "exposure_summary_path": str(exposure_summary_path),
             "distribution_plot_path": distribution_plot_path,
             "mean_plot_path": mean_plot_path,
             "report_path": report_path,
+            "design_outputs": design_outputs,
             "t_test_result": t_test_result,
             "chi_square_result": chi_square_result,
         }
+        run_manifest_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        result["run_manifest_path"] = str(run_manifest_path)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return result
     except Exception as exc:

@@ -148,6 +148,21 @@ MPLCONFIGDIR=/tmp/mpl XDG_CACHE_HOME=/tmp python3 scripts/run_first_abtest.py
 - `abtest_v1_completion_distribution.png`
 - `abtest_v1_completion_mean.png`
 
+如果你希望把“设计文档生成 + 分析 + Tableau 数据导出”一条命令全部跑完，可以执行：
+
+```bash
+cd /Users/liubike/Desktop/快手test/kuairec_abtest
+MPLCONFIGDIR=/tmp/mpl XDG_CACHE_HOME=/tmp python3 scripts/run_abtest_pipeline.py
+```
+
+这个一键入口会额外生成：
+
+- `abtest_v1_design.json`
+- `abtest_v1_design.md`
+- `abtest_v1_exposure_summary.csv`
+- `abtest_v1_run_manifest.json`
+- `output/tableau/tableau_manifest.json`
+
 ## 第一版 AB Test 设计思路
 
 这一版的目标不是直接替业务做最终上线决策，而是先搭出一条可复用的 AB Test 基础链路：能稳定分流、能算核心指标、能做显著性检验、能输出看板数据。
@@ -283,3 +298,9 @@ python3 scripts/export_tableau_data.py
 接入说明见：
 
 - [tableau_setup.md](/Users/liubike/Desktop/快手test/kuairec_abtest/docs/tableau_setup.md)
+
+## 提交日志
+
+从当前版本开始，项目内维护一份独立变更日志，记录每次较大的方案或代码调整：
+
+- [change_log.md](/Users/liubike/Desktop/快手test/kuairec_abtest/docs/change_log.md)
