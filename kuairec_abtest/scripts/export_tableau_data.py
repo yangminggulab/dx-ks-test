@@ -22,7 +22,7 @@ from experiment_config import get_abtest_v1_spec
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "output"
-TABLEAU_OUTPUT_DIR = OUTPUT_DIR / "tableau"
+TABLEAU_OUTPUT_DIR = PROJECT_ROOT / "tableau与数据源"
 EXPERIMENT_SPEC = get_abtest_v1_spec()
 
 
