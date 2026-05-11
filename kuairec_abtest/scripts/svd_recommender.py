@@ -340,6 +340,13 @@ def run_svd_pipeline(
         "recommendations": recommendations,       # dict 格式，供 AB Test 管道调用
         "recommendations_df": rec_df,             # DataFrame 格式，供 CSV 导出
         "singular_values": sigma.tolist(),
+        # 供可视化模块使用的模型矩阵
+        "_U": U,
+        "_Vt": Vt,
+        "_matrix": matrix,
+        "_user_ids": user_ids,
+        "_item_ids": item_ids,
+        "_interaction_df": df,
     }
 
     # 6. 写出
