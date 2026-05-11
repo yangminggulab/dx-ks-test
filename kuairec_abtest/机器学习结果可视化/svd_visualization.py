@@ -7,17 +7,24 @@
   ③ 推荐质量如何？      → 个性化多样性热图 + 热门偏差分析
 
 用法：
+    import sys
+    sys.path.insert(0, "kuairec_abtest/scripts")
+    sys.path.insert(0, "kuairec_abtest/机器学习结果可视化")
+
     from svd_recommender import run_svd_pipeline
     from svd_visualization import run_svd_visualization
 
-    result = run_svd_pipeline(...)          # 先跑 SVD
-    run_svd_visualization(result, df)       # 再跑可视化
+    result = run_svd_pipeline(...)
+    run_svd_visualization(result, df)       # 图片默认保存到本文件夹
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+
+# 默认输出目录 = 本文件所在的文件夹（机器学习结果可视化/）
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent
 
 import matplotlib
 matplotlib.use("Agg")
@@ -336,7 +343,7 @@ def plot_score_distribution(
 def run_svd_visualization(
     svd_result: dict[str, Any],
     interaction_df: pd.DataFrame,
-    output_dir: Path | None = None,
+    output_dir: Path | None = DEFAULT_OUTPUT_DIR,
     user_meta_df: pd.DataFrame | None = None,
 ) -> str | None:
     """
@@ -345,7 +352,7 @@ def run_svd_visualization(
     Args:
         svd_result      run_svd_pipeline() 的返回值
         interaction_df  原始 (user_id, video_id, watch_ratio) DataFrame
-        output_dir      保存路径，None 则不保存
+        output_dir      保存路径，默认保存到本文件所在的"机器学习结果可视化/"文件夹
         user_meta_df    可选，含 user_id / user_active_degree 的用户信息表
 
     Returns:
