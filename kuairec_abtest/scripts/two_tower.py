@@ -351,13 +351,15 @@ def run_two_tower_pipeline(
     weighted: bool = True,
     eligible_video_ids: set | None = None,
     output_dir: Path | None = None,
+    checkpoint_dir: Path | None = None,
     _test_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
     Two-Tower 完整流程，返回格式与 svd_recommender.run_svd_pipeline 兼容。
 
-    weighted=True  : WBPR loss，用 watch_ratio 加权（完播贡献更大）
-    weighted=False : 普通 BPR loss，所有正样本等权重
+    weighted=True      : WBPR loss，用 watch_ratio 加权（完播贡献更大）
+    weighted=False     : 普通 BPR loss，所有正样本等权重
+    checkpoint_dir     : 每个 epoch 结束后保存 checkpoint；有已有 checkpoint 时自动续训
     """
     device = _get_device()
     print(f"[TwoTower] device = {device}")
@@ -393,15 +395,30 @@ def run_two_tower_pipeline(
     model = TwoTowerModel(user_tower, item_tower)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
+    # 6. Checkpoint 恢复
+    ckpt_path: Path | None = None
+    start_epoch = 0
+    if checkpoint_dir is not None:
+        checkpoint_dir = Path(checkpoint_dir)
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        variant = "wbpr" if weighted else "bpr"
+        ckpt_path = checkpoint_dir / f"two_tower_{variant}_latest.pt"
+        if ckpt_path.exists():
+            ckpt = torch.load(ckpt_path, map_location=device)
+            model.load_state_dict(ckpt["model"])
+            optimizer.load_state_dict(ckpt["optimizer"])
+            start_epoch = ckpt["epoch"] + 1
+            print(f"[TwoTower] 从 checkpoint 恢复：epoch {start_epoch}/{n_epochs}（{ckpt_path}）")
+
     print(
         f"[TwoTower] 开始训练：{n_users:,} 用户 × {n_items:,} 视频，"
         f"emb={emb_dim}，hidden={hidden_dim}，out={out_dim}，"
         f"epochs={n_epochs}，lr={lr}"
     )
 
-    # 6. 训练（BPR loss）
+    # 7. 训练（BPR / WBPR loss）
     avg_loss = 0.0
-    for epoch in range(n_epochs):
+    for epoch in range(start_epoch, n_epochs):
         t0 = time.time()
         model.train()
         total_loss, n_seen = 0.0, 0
@@ -439,10 +456,15 @@ def run_two_tower_pipeline(
         loss_label = "WBPR-loss" if weighted else "BPR-loss"
         print(f"  epoch {epoch+1:>2}/{n_epochs}  {loss_label}={avg_loss:.6f}  ({time.time()-t0:.1f}s)")
 
+        if ckpt_path is not None:
+            torch.save({"epoch": epoch, "model": model.state_dict(),
+                        "optimizer": optimizer.state_dict(), "avg_loss": avg_loss}, ckpt_path)
+            print(f"  └─ checkpoint 已保存（epoch {epoch+1}）")
+
     loss_label = "WBPR-loss" if weighted else "BPR-loss"
     print(f"[TwoTower] 训练完成，最终 {loss_label}={avg_loss:.6f}")
 
-    # 7. 生成个性化推荐
+    # 8. 生成个性化推荐
     print(f"\n[TwoTower] 为 {n_users:,} 位用户生成个性化 top-{top_k} 推荐……")
     model.eval()
     recommendations: dict = {}
