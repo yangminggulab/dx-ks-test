@@ -348,11 +348,17 @@ def run_two_tower_pipeline(
     lr: float = DEFAULT_LR,
     batch_size: int = DEFAULT_BATCH,
     top_k: int = DEFAULT_TOP_K,
+    weighted: bool = True,
     eligible_video_ids: set | None = None,
     output_dir: Path | None = None,
     _test_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
-    """Two-Tower BPR 完整流程，返回格式与 svd_recommender.run_svd_pipeline 兼容。"""
+    """
+    Two-Tower 完整流程，返回格式与 svd_recommender.run_svd_pipeline 兼容。
+
+    weighted=True  : WBPR loss，用 watch_ratio 加权（完播贡献更大）
+    weighted=False : 普通 BPR loss，所有正样本等权重
+    """
     device = _get_device()
     print(f"[TwoTower] device = {device}")
 
@@ -415,9 +421,12 @@ def run_two_tower_pipeline(
             pos_score = (u_emb * pos_emb).sum(-1)   # (batch,)
             neg_score = (u_emb * neg_emb).sum(-1)   # (batch,)
 
-            # WBPR loss：用 watch_ratio 加权，完播样本的梯度贡献更大
-            # w_b ∈ [0,1]，完播(w≈1)贡献满梯度，划走(w≈0.1)贡献 10% 梯度
-            loss = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
+            if weighted:
+                # WBPR：watch_ratio 加权，完播(w≈1)贡献满梯度，划走(w≈0.1)贡献 10%
+                loss = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
+            else:
+                # 普通 BPR：所有正样本等权重
+                loss = -F.logsigmoid(pos_score - neg_score).mean()
 
             optimizer.zero_grad()
             loss.backward()
@@ -477,7 +486,7 @@ def run_two_tower_pipeline(
     rec_df = recommendations_to_dataframe(recommendations)
 
     result: dict[str, Any] = {
-        "model":    "TwoTower",
+        "model":    "TwoTower-WBPR" if weighted else "TwoTower-BPR",
         "n_users":  n_users,
         "n_items":  n_items,
         "emb_dim":  emb_dim,
@@ -519,6 +528,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-epochs",   type=int,   default=DEFAULT_N_EPOCHS)
     parser.add_argument("--lr",         type=float, default=DEFAULT_LR)
     parser.add_argument("--top-k",      type=int,   default=DEFAULT_TOP_K)
+    parser.add_argument("--no-weight",  action="store_true", help="用普通 BPR（不加权）")
     parser.add_argument("--output-dir", type=str,   default=None)
     args = parser.parse_args()
 
@@ -533,5 +543,6 @@ if __name__ == "__main__":
         n_epochs=args.n_epochs,
         lr=args.lr,
         top_k=args.top_k,
+        weighted=not args.no_weight,
         output_dir=out,
     )
