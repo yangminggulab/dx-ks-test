@@ -189,29 +189,30 @@ def _build_item_features(
 
 class TwoTowerBPRDataset(Dataset):
     """
-    BPR 训练集：每个样本是 (用户, 正样本视频, 负样本视频)。
+    WBPR 训练集：每个样本是 (用户, 正样本视频, 负样本视频, watch_ratio 权重)。
 
-    【Dataset 的两个核心方法】
-    __len__      : 告诉 DataLoader 数据集有多少条
-    __getitem__  : 给定下标 idx，返回第 idx 条样本
-
-    负样本在 __getitem__ 里动态随机采样，每个 epoch 的负样本都不同，
-    相当于数据增强——同一正样本每次都遇到不同的"对手"。
+    【为什么需要权重？】
+    普通 BPR 只区分"看过/没看过"，把 watch_ratio=0.1 和 watch_ratio=1.0 等价。
+    但完播（w≈1.0）是强正反馈，划走（w≈0.1）是弱正反馈，信号强度差距很大。
+    WBPR loss = -mean(w × log σ(pos_score − neg_score))
+    完播样本的梯度贡献更大，模型更专注学"真正喜欢"而非"随便扫了一眼"。
     """
 
-    def __init__(self, u_arr: np.ndarray, i_arr: np.ndarray, n_items: int):
+    def __init__(self, u_arr: np.ndarray, i_arr: np.ndarray, r_arr: np.ndarray, n_items: int):
         self.u_arr   = u_arr
         self.i_arr   = i_arr
+        self.r_arr   = r_arr   # watch_ratio，范围 [0, 1]
         self.n_items = n_items
 
     def __len__(self) -> int:
         return len(self.u_arr)
 
-    def __getitem__(self, idx: int) -> tuple[int, int, int]:
+    def __getitem__(self, idx: int) -> tuple[int, int, int, float]:
         u   = int(self.u_arr[idx])
         pos = int(self.i_arr[idx])
         neg = random.randint(0, self.n_items - 1)   # 均匀随机负采样
-        return u, pos, neg
+        w   = self.r_arr[idx]                       # 正样本权重（保持 float32，float() 会升为 float64）
+        return u, pos, neg, w
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -365,6 +366,7 @@ def run_two_tower_pipeline(
     i_index = {iid: i for i, iid in enumerate(item_ids)}
     u_arr = df["user_id"].map(u_index).values.astype(np.int64)
     i_arr = df["video_id"].map(i_index).values.astype(np.int64)
+    r_arr = df["watch_ratio"].values.astype(np.float32)
 
     # 3. 加载特征，转为全量 tensor 放到 device（训练时按索引查）
     user_active_np, user_num_np = _build_user_features(user_ids)
@@ -375,8 +377,8 @@ def run_two_tower_pipeline(
     item_cat_t    = torch.from_numpy(item_cat_np).to(device)
     item_dur_t    = torch.from_numpy(item_dur_np).to(device)
 
-    # 4. BPR DataLoader（num_workers=0 避免 MPS 多进程冲突）
-    dataset = TwoTowerBPRDataset(u_arr, i_arr, n_items)
+    # 4. WBPR DataLoader（num_workers=0 避免 MPS 多进程冲突）
+    dataset = TwoTowerBPRDataset(u_arr, i_arr, r_arr, n_items)
     loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
     # 5. 模型 & 优化器
@@ -398,10 +400,11 @@ def run_two_tower_pipeline(
         model.train()
         total_loss, n_seen = 0.0, 0
 
-        for u_b, pos_b, neg_b in loader:
+        for u_b, pos_b, neg_b, w_b in loader:
             u_b   = u_b.to(device)
             pos_b = pos_b.to(device)
             neg_b = neg_b.to(device)
+            w_b   = w_b.to(device)    # watch_ratio 权重，shape (batch,)
 
             # 用户向量（用户侧特征用 u_b 作为索引）
             u_emb   = model.user_tower(u_b, user_active_t[u_b], user_num_t[u_b])
@@ -412,9 +415,9 @@ def run_two_tower_pipeline(
             pos_score = (u_emb * pos_emb).sum(-1)   # (batch,)
             neg_score = (u_emb * neg_emb).sum(-1)   # (batch,)
 
-            # BPR loss：-log σ(pos_score − neg_score)
-            # F.logsigmoid(x) = log(σ(x))，数值稳定版
-            loss = -F.logsigmoid(pos_score - neg_score).mean()
+            # WBPR loss：用 watch_ratio 加权，完播样本的梯度贡献更大
+            # w_b ∈ [0,1]，完播(w≈1)贡献满梯度，划走(w≈0.1)贡献 10% 梯度
+            loss = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
 
             optimizer.zero_grad()
             loss.backward()
