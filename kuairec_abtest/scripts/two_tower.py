@@ -436,9 +436,11 @@ def run_two_tower_pipeline(
             n_seen += len(u_b)
 
         avg_loss = total_loss / n_seen
-        print(f"  epoch {epoch+1:>2}/{n_epochs}  BPR-loss={avg_loss:.6f}  ({time.time()-t0:.1f}s)")
+        loss_label = "WBPR-loss" if weighted else "BPR-loss"
+        print(f"  epoch {epoch+1:>2}/{n_epochs}  {loss_label}={avg_loss:.6f}  ({time.time()-t0:.1f}s)")
 
-    print(f"[TwoTower] 训练完成，最终 BPR-loss={avg_loss:.6f}")
+    loss_label = "WBPR-loss" if weighted else "BPR-loss"
+    print(f"[TwoTower] 训练完成，最终 {loss_label}={avg_loss:.6f}")
 
     # 7. 生成个性化推荐
     print(f"\n[TwoTower] 为 {n_users:,} 位用户生成个性化 top-{top_k} 推荐……")

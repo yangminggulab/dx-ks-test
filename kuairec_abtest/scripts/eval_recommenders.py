@@ -194,10 +194,12 @@ def run_comparison(
     """
     from two_tower import run_two_tower_pipeline
 
+    # output_dir 不传给单个模型：两者文件名相同会互相覆盖
+    # 对比 CSV 在评估完后由 run_comparison 统一保存
     shared = dict(
         n_epochs=n_epochs, top_k=top_k,
         eligible_video_ids=eligible_video_ids,
-        output_dir=output_dir, _test_df=_test_df,
+        output_dir=None, _test_df=_test_df,
     )
 
     print("\n" + "═" * 60)
