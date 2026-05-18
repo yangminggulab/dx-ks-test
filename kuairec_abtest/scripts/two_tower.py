@@ -424,7 +424,11 @@ def run_two_tower_pipeline(
             start_epoch      = ckpt["epoch"] + 1
             best_val_loss    = ckpt.get("best_val_loss", float("inf"))
             patience_counter = ckpt.get("patience_counter", 0)
-            print(f"[TwoTower] 从 checkpoint 恢复：epoch {start_epoch}/{n_epochs}（{ckpt_path}）")
+            if patience_counter >= patience:
+                print(f"[TwoTower] 从 checkpoint 恢复：Early Stopping 已完成，直接推理（{ckpt_path}）")
+                start_epoch = n_epochs  # 跳过训练循环
+            else:
+                print(f"[TwoTower] 从 checkpoint 恢复：epoch {start_epoch}/{n_epochs}（{ckpt_path}）")
 
     loss_label = "WBPR-loss" if weighted else "BPR-loss"
     print(
@@ -522,6 +526,13 @@ def run_two_tower_pipeline(
                     f"[TwoTower] Early Stopping：连续 {patience} 轮 val_loss 未改善，"
                     f"停止在 epoch {epoch+1}（最佳 epoch {epoch+1-patience}）"
                 )
+                if ckpt_path is not None:
+                    torch.save({
+                        "epoch": epoch, "model": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "avg_loss": avg_loss, "val_loss": avg_val_loss,
+                        "best_val_loss": best_val_loss, "patience_counter": patience_counter,
+                    }, ckpt_path)
                 break
 
         # ── 续训 Checkpoint（意外中断恢复用）─────────────────

@@ -78,14 +78,14 @@ def evaluate(
     recommendations: dict[Any, list[Any]],
     ground_truth: dict[Any, dict[Any, float]],
     top_k: int = 50,
-) -> dict[str, float]:
+    return_per_user: bool = False,
+) -> dict[str, Any]:
     """
     计算推荐列表在 ground_truth 上的离线指标。
 
     只评估 recommendations 和 ground_truth 都有的用户（交集）。
 
-    Returns:
-        {hit_rate, avg_watch_ratio, ndcg, n_users}
+    return_per_user=True 时，额外在结果里附带逐用户数组（供 t-test 使用）。
     """
     common_users = set(recommendations.keys()) & set(ground_truth.keys())
     if not common_users:
@@ -101,26 +101,28 @@ def evaluate(
         if not recs:
             continue
 
-        # Hit Rate@K：推荐中有多少个视频用户真的看了
         hits = [1 if vid in user_gt else 0 for vid in recs]
         hit_rates.append(sum(hits) / len(recs))
-
-        # avg_watch_ratio@K：推荐视频的平均完播率（未看过计 0）
         avg_wrs.append(sum(user_gt.get(vid, 0.0) for vid in recs) / len(recs))
 
-        # NDCG@K：排名越靠前的命中贡献越大（log2 折扣）
         dcg  = sum(user_gt.get(vid, 0.0) / np.log2(i + 2) for i, vid in enumerate(recs))
-        # 理想情况：把该用户所有真实 watch_ratio 从高到低排列
         ideal = sorted(user_gt.values(), reverse=True)[:len(recs)]
         idcg  = sum(r / np.log2(i + 2) for i, r in enumerate(ideal))
         ndcgs.append(dcg / idcg if idcg > 0 else 0.0)
 
-    return {
+    result: dict[str, Any] = {
         "n_users":          len(common_users),
         "hit_rate":         float(np.mean(hit_rates)),
         "avg_watch_ratio":  float(np.mean(avg_wrs)),
         "ndcg":             float(np.mean(ndcgs)),
     }
+    if return_per_user:
+        result["_per_user"] = {
+            "hit_rates": hit_rates,
+            "avg_wrs":   avg_wrs,
+            "ndcgs":     ndcgs,
+        }
+    return result
 
 
 def compare_models(
@@ -218,6 +220,20 @@ def run_comparison(
     gt = load_ground_truth()
     df_cmp = compare_models([r_bpr, r_wbpr], gt, top_k=top_k)
     print_comparison(df_cmp)
+
+    # 统计显著性检验（逐用户指标做双样本 t-test）
+    from ab_test import t_test
+    m_bpr  = evaluate(r_bpr["recommendations"],  gt, top_k=top_k, return_per_user=True)
+    m_wbpr = evaluate(r_wbpr["recommendations"], gt, top_k=top_k, return_per_user=True)
+    pu_bpr  = m_bpr["_per_user"]
+    pu_wbpr = m_wbpr["_per_user"]
+
+    print("\n── 统计显著性检验（双样本 Welch t-test，α=0.05）────────────────")
+    for metric, key in [("Hit Rate", "hit_rates"), ("avg_watch_ratio", "avg_wrs"), ("NDCG", "ndcgs")]:
+        res = t_test(pu_bpr[key], pu_wbpr[key])
+        sig = "显著 ✓" if res["is_significant"] else "不显著 ✗"
+        print(f"  {metric:20s}  p={res['p_value']:.4f}  {sig}")
+    print("────────────────────────────────────────────────────────────────\n")
 
     if output_dir is not None:
         output_dir = Path(output_dir)
