@@ -1,5 +1,27 @@
 # 项目变更日志
 
+## 2026-05-18
+
+### Two-Tower Early Stopping + 为 Transformer 做准备
+
+**two_tower.py（修改）**
+- 新增 Early Stopping 机制，解决 20 epoch 过拟合问题（3 epoch 后 val_loss 即开始反弹）。
+- 交互数据以固定 seed=42 切 90% train / 10% val，保证 BPR 和 WBPR 用相同切分便于对比。
+- 每 epoch 计算验证集 BPR/WBPR loss（torch.no_grad，无梯度，开销约 20%）。
+- val_loss 改善时：在内存保留最佳权重（state_dict clone），同时写 `_best.pt` 到磁盘。
+- 连续 `patience`（默认 5）轮无改善则停止，推理时自动恢复最佳权重，不用过拟合的最终 epoch。
+- 中断恢复 checkpoint（`_latest.pt`）额外存储 `best_val_loss` 和 `patience_counter`，续训可正确接续早停状态。
+- 新增 CLI 参数 `--patience`，`--n-epochs` 默认改为 50（最大轮数，早停会提前退出）。
+
+**eval_recommenders.py（修改）**
+- `run_comparison` 新增 `patience` 参数（默认 5），透传给双塔训练流程。
+- `--n-epochs` CLI 默认值改为 50。
+- `--patience` CLI 参数新增。
+
+**背景**：20 epoch run（2026-05-17）结果显示明显过拟合：BPR Hit Rate 0.0283→0.0055，
+WBPR Hit Rate 0.0573→0.0008。Early Stopping 是此次修复的核心动作。
+下一步：重跑对比实验（删除旧 checkpoint），再考虑引入 SASRec（Transformer 架构）。
+
 ## 2026-05-11
 
 ### SVD 推荐系统 + 可视化 + 优化模型
