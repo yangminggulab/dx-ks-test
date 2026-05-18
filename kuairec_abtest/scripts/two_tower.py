@@ -352,6 +352,8 @@ def run_two_tower_pipeline(
     eligible_video_ids: set | None = None,
     output_dir: Path | None = None,
     checkpoint_dir: Path | None = None,
+    patience: int = 5,
+    val_frac: float = 0.1,
     _test_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """
@@ -385,9 +387,17 @@ def run_two_tower_pipeline(
     item_cat_t    = torch.from_numpy(item_cat_np).to(device)
     item_dur_t    = torch.from_numpy(item_dur_np).to(device)
 
-    # 4. WBPR DataLoader（num_workers=0 避免 MPS 多进程冲突）
-    dataset = TwoTowerBPRDataset(u_arr, i_arr, r_arr, n_items)
-    loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    # 4. 切分训练/验证集（Early Stopping 用验证集监控过拟合）
+    #    固定 seed 保证每次切分结果相同（方便对比 BPR / WBPR）
+    n_total = len(u_arr)
+    perm = np.random.default_rng(42).permutation(n_total)
+    n_val = max(1, min(500_000, int(n_total * val_frac)))  # 最多 50 万条，至少 1 条
+    val_idx, train_idx = perm[:n_val], perm[n_val:]
+
+    train_ds = TwoTowerBPRDataset(u_arr[train_idx], i_arr[train_idx], r_arr[train_idx], n_items)
+    val_ds   = TwoTowerBPRDataset(u_arr[val_idx],   i_arr[val_idx],   r_arr[val_idx],   n_items)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=0)
+    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=0)
 
     # 5. 模型 & 优化器
     user_tower = UserTower(n_users, emb_dim, hidden_dim, out_dim).to(device)
@@ -397,52 +407,60 @@ def run_two_tower_pipeline(
 
     # 6. Checkpoint 恢复
     ckpt_path: Path | None = None
+    best_ckpt_path: Path | None = None
     start_epoch = 0
+    best_val_loss = float("inf")
+    patience_counter = 0
     if checkpoint_dir is not None:
         checkpoint_dir = Path(checkpoint_dir)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         variant = "wbpr" if weighted else "bpr"
-        ckpt_path = checkpoint_dir / f"two_tower_{variant}_latest.pt"
+        ckpt_path      = checkpoint_dir / f"two_tower_{variant}_latest.pt"
+        best_ckpt_path = checkpoint_dir / f"two_tower_{variant}_best.pt"
         if ckpt_path.exists():
             ckpt = torch.load(ckpt_path, map_location=device)
             model.load_state_dict(ckpt["model"])
             optimizer.load_state_dict(ckpt["optimizer"])
-            start_epoch = ckpt["epoch"] + 1
+            start_epoch      = ckpt["epoch"] + 1
+            best_val_loss    = ckpt.get("best_val_loss", float("inf"))
+            patience_counter = ckpt.get("patience_counter", 0)
             print(f"[TwoTower] 从 checkpoint 恢复：epoch {start_epoch}/{n_epochs}（{ckpt_path}）")
 
+    loss_label = "WBPR-loss" if weighted else "BPR-loss"
     print(
         f"[TwoTower] 开始训练：{n_users:,} 用户 × {n_items:,} 视频，"
         f"emb={emb_dim}，hidden={hidden_dim}，out={out_dim}，"
-        f"epochs={n_epochs}，lr={lr}"
+        f"max_epochs={n_epochs}，patience={patience}，lr={lr}"
     )
+    print(f"  训练集 {len(train_idx):,} 条，验证集 {len(val_idx):,} 条")
 
-    # 7. 训练（BPR / WBPR loss）
+    # 7. 训练（BPR / WBPR loss）+ Early Stopping
     avg_loss = 0.0
+    avg_val_loss = float("inf")
+    best_model_state: dict | None = None  # 内存中保存最佳权重（兜底）
+
     for epoch in range(start_epoch, n_epochs):
         t0 = time.time()
+
+        # ── 训练阶段 ──────────────────────────────────────────
         model.train()
         total_loss, n_seen = 0.0, 0
-
-        for u_b, pos_b, neg_b, w_b in loader:
+        for u_b, pos_b, neg_b, w_b in train_loader:
             u_b   = u_b.to(device)
             pos_b = pos_b.to(device)
             neg_b = neg_b.to(device)
-            w_b   = w_b.to(device)    # watch_ratio 权重，shape (batch,)
+            w_b   = w_b.to(device)
 
-            # 用户向量（用户侧特征用 u_b 作为索引）
             u_emb   = model.user_tower(u_b, user_active_t[u_b], user_num_t[u_b])
-            # 正/负样本视频向量
             pos_emb = model.item_tower(pos_b, item_cat_t[pos_b], item_dur_t[pos_b])
             neg_emb = model.item_tower(neg_b, item_cat_t[neg_b], item_dur_t[neg_b])
 
-            pos_score = (u_emb * pos_emb).sum(-1)   # (batch,)
-            neg_score = (u_emb * neg_emb).sum(-1)   # (batch,)
+            pos_score = (u_emb * pos_emb).sum(-1)
+            neg_score = (u_emb * neg_emb).sum(-1)
 
             if weighted:
-                # WBPR：watch_ratio 加权，完播(w≈1)贡献满梯度，划走(w≈0.1)贡献 10%
                 loss = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
             else:
-                # 普通 BPR：所有正样本等权重
                 loss = -F.logsigmoid(pos_score - neg_score).mean()
 
             optimizer.zero_grad()
@@ -453,16 +471,78 @@ def run_two_tower_pipeline(
             n_seen += len(u_b)
 
         avg_loss = total_loss / n_seen
-        loss_label = "WBPR-loss" if weighted else "BPR-loss"
-        print(f"  epoch {epoch+1:>2}/{n_epochs}  {loss_label}={avg_loss:.6f}  ({time.time()-t0:.1f}s)")
 
+        # ── 验证阶段（无梯度，快速）────────────────────────────
+        model.eval()
+        val_total, n_val_seen = 0.0, 0
+        with torch.no_grad():
+            for u_b, pos_b, neg_b, w_b in val_loader:
+                u_b, pos_b, neg_b, w_b = (
+                    u_b.to(device), pos_b.to(device),
+                    neg_b.to(device), w_b.to(device),
+                )
+                u_emb   = model.user_tower(u_b, user_active_t[u_b], user_num_t[u_b])
+                pos_emb = model.item_tower(pos_b, item_cat_t[pos_b], item_dur_t[pos_b])
+                neg_emb = model.item_tower(neg_b, item_cat_t[neg_b], item_dur_t[neg_b])
+                pos_score = (u_emb * pos_emb).sum(-1)
+                neg_score = (u_emb * neg_emb).sum(-1)
+                if weighted:
+                    vl = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
+                else:
+                    vl = -F.logsigmoid(pos_score - neg_score).mean()
+                val_total  += vl.item() * len(u_b)
+                n_val_seen += len(u_b)
+
+        avg_val_loss = val_total / n_val_seen
+        improved = avg_val_loss < best_val_loss - 1e-6
+        star = " ★" if improved else ""
+
+        print(
+            f"  epoch {epoch+1:>2}/{n_epochs}  {loss_label}={avg_loss:.6f}"
+            f"  val={avg_val_loss:.6f}{star}  ({time.time()-t0:.1f}s)"
+        )
+
+        # ── Early Stopping 逻辑 ───────────────────────────────
+        if improved:
+            best_val_loss = avg_val_loss
+            patience_counter = 0
+            # 内存中保留最佳权重（clone 避免后续 epoch 覆盖）
+            best_model_state = {k: v.clone() for k, v in model.state_dict().items()}
+            if best_ckpt_path is not None:
+                torch.save({
+                    "epoch": epoch, "model": best_model_state,
+                    "optimizer": optimizer.state_dict(),
+                    "avg_loss": avg_loss, "val_loss": avg_val_loss,
+                }, best_ckpt_path)
+                print(f"  └─ 最佳模型已保存（val_loss={avg_val_loss:.6f}）")
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(
+                    f"[TwoTower] Early Stopping：连续 {patience} 轮 val_loss 未改善，"
+                    f"停止在 epoch {epoch+1}（最佳 epoch {epoch+1-patience}）"
+                )
+                break
+
+        # ── 续训 Checkpoint（意外中断恢复用）─────────────────
         if ckpt_path is not None:
-            torch.save({"epoch": epoch, "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(), "avg_loss": avg_loss}, ckpt_path)
-            print(f"  └─ checkpoint 已保存（epoch {epoch+1}）")
+            torch.save({
+                "epoch": epoch, "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "avg_loss": avg_loss, "val_loss": avg_val_loss,
+                "best_val_loss": best_val_loss, "patience_counter": patience_counter,
+            }, ckpt_path)
 
-    loss_label = "WBPR-loss" if weighted else "BPR-loss"
-    print(f"[TwoTower] 训练完成，最终 {loss_label}={avg_loss:.6f}")
+    # 8. 恢复最佳权重用于推理（不是最后一轮的过拟合权重）
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+        print(f"[TwoTower] 已加载最佳权重（val_loss={best_val_loss:.6f}）")
+    elif best_ckpt_path is not None and best_ckpt_path.exists():
+        best = torch.load(best_ckpt_path, map_location=device)
+        model.load_state_dict(best["model"])
+        print(f"[TwoTower] 已从磁盘加载最佳权重（val_loss={best['val_loss']:.6f}）")
+
+    print(f"[TwoTower] 训练完成，最终 {loss_label}={avg_loss:.6f}，最佳 val_loss={best_val_loss:.6f}")
 
     # 8. 生成个性化推荐
     print(f"\n[TwoTower] 为 {n_users:,} 位用户生成个性化 top-{top_k} 推荐……")
@@ -549,7 +629,8 @@ if __name__ == "__main__":
     parser.add_argument("--emb-dim",    type=int,   default=DEFAULT_EMB_DIM)
     parser.add_argument("--hidden-dim", type=int,   default=DEFAULT_HIDDEN)
     parser.add_argument("--out-dim",    type=int,   default=DEFAULT_OUT_DIM)
-    parser.add_argument("--n-epochs",   type=int,   default=DEFAULT_N_EPOCHS)
+    parser.add_argument("--n-epochs",   type=int,   default=50, help="最大训练轮数（Early Stopping 会提前终止）")
+    parser.add_argument("--patience",   type=int,   default=5,  help="Early Stopping 容忍 patience 轮 val_loss 不改善")
     parser.add_argument("--lr",         type=float, default=DEFAULT_LR)
     parser.add_argument("--top-k",      type=int,   default=DEFAULT_TOP_K)
     parser.add_argument("--no-weight",  action="store_true", help="用普通 BPR（不加权）")
@@ -565,6 +646,7 @@ if __name__ == "__main__":
         hidden_dim=args.hidden_dim,
         out_dim=args.out_dim,
         n_epochs=args.n_epochs,
+        patience=args.patience,
         lr=args.lr,
         top_k=args.top_k,
         weighted=not args.no_weight,

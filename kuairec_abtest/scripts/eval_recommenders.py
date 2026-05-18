@@ -183,8 +183,9 @@ def print_comparison(df: pd.DataFrame) -> None:
 # ══════════════════════════════════════════════════════════════════════
 
 def run_comparison(
-    n_epochs: int = 20,
+    n_epochs: int = 50,
     top_k: int = 50,
+    patience: int = 5,
     eligible_video_ids: set | None = None,
     output_dir: Path | None = None,
     _test_df: pd.DataFrame | None = None,
@@ -198,7 +199,7 @@ def run_comparison(
     # checkpoint_dir 给两个变体各自用不同子目录，中断可续训
     ckpt_root = (Path(output_dir) / "checkpoints") if output_dir else Path("output/checkpoints")
     shared = dict(
-        n_epochs=n_epochs, top_k=top_k,
+        n_epochs=n_epochs, top_k=top_k, patience=patience,
         eligible_video_ids=eligible_video_ids,
         output_dir=None, _test_df=_test_df,
         checkpoint_dir=ckpt_root,
@@ -235,8 +236,9 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="对比 TwoTower-BPR vs TwoTower-WBPR。")
-    parser.add_argument("--n-epochs", type=int, default=20)
-    parser.add_argument("--top-k",    type=int, default=50)
+    parser.add_argument("--n-epochs",  type=int, default=50)
+    parser.add_argument("--top-k",     type=int, default=50)
+    parser.add_argument("--patience",  type=int, default=5)
     parser.add_argument("--output-dir", type=str, default=None)
     args = parser.parse_args()
 
@@ -244,4 +246,4 @@ if __name__ == "__main__":
         Path(__file__).resolve().parents[1] / "output"
     )
 
-    run_comparison(n_epochs=args.n_epochs, top_k=args.top_k, output_dir=out)
+    run_comparison(n_epochs=args.n_epochs, top_k=args.top_k, patience=args.patience, output_dir=out)
