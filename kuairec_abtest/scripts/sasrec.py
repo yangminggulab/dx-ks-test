@@ -130,9 +130,9 @@ class SASRecDataset(Dataset):
             items_only = [it for it, _ in input_seq]
             if len(items_only) > max_seq:
                 items_only = items_only[-max_seq:]
-            pad_seq[-len(items_only):] = items_only
-            # +1 因为 0 是 PAD，item idx 从 1 开始（在模型里 embedding 多一行）
-            pad_seq[pad_seq != 0] += 1
+            # +1 偏移：0 保留给 PAD，所有真实 item idx 从 1 开始
+            # 直接在赋值时 +1，避免 item_index=0 的视频被误当 PAD
+            pad_seq[-len(items_only):] = np.array(items_only, dtype=np.int64) + 1
 
             self.samples.append((pad_seq, pos_item + 1, w))  # pos_item 也 +1
 
@@ -211,12 +211,11 @@ class SASRec(nn.Module):
         x = self.item_emb(seq) + self.pos_emb(pos_ids)
         x = self.emb_dropout(x)
 
-        # PAD mask：PAD 位置不参与注意力计算
-        pad_mask = (seq == 0)  # (batch, seq_len)，True = PAD
-
         causal = self._causal_mask(L, device)
-
-        x = self.transformer(x, mask=causal, src_key_padding_mask=pad_mask)
+        # 只用因果 mask，不用 padding mask：
+        # 左 padding + 因果 mask + padding mask 三叠会导致 PAD 位置无处 attend → nan
+        # 因果 mask 已保证不泄露未来信息，padding mask 在此冗余且有害
+        x = self.transformer(x, mask=causal)
         return self.out_norm(x)  # (batch, L, D)
 
     def forward(
@@ -475,8 +474,7 @@ def run_sasrec_pipeline(
                 seq = sequences[uid]
                 pad_seq = np.zeros(max_seq, dtype=np.int64)
                 items_only = [it for it, _ in seq][-max_seq:]
-                pad_seq[-len(items_only):] = np.array(items_only, dtype=np.int64)
-                pad_seq[pad_seq != 0] += 1
+                pad_seq[-len(items_only):] = np.array(items_only, dtype=np.int64) + 1
                 batch_seqs.append(pad_seq)
 
             seq_t = torch.from_numpy(np.stack(batch_seqs)).to(device)
