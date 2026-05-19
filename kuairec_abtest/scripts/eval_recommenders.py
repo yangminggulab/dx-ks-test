@@ -245,16 +245,104 @@ def run_comparison(
 
 
 # ══════════════════════════════════════════════════════════════════════
+# 实验二：TwoTower-WBPR（对照）vs SASRec（实验）
+# ══════════════════════════════════════════════════════════════════════
+
+def run_comparison_v2(
+    n_epochs: int = 50,
+    top_k: int = 50,
+    patience: int = 5,
+    eligible_video_ids: set | None = None,
+    output_dir: Path | None = None,
+    include_bpr: bool = False,
+) -> pd.DataFrame:
+    """
+    实验二：TwoTower-WBPR（对照）vs SASRec（实验）。
+
+    include_bpr=True 可将 TwoTower-BPR 重新加入对比（三模型对比），
+    默认 False，BPR 接口保留但不运行。
+    """
+    from two_tower import run_two_tower_pipeline
+    from sasrec import run_sasrec_pipeline
+
+    ckpt_root = (Path(output_dir) / "checkpoints") if output_dir else Path("output/checkpoints")
+    tt_shared = dict(
+        n_epochs=n_epochs, top_k=top_k, patience=patience,
+        eligible_video_ids=eligible_video_ids,
+        output_dir=None,
+        checkpoint_dir=ckpt_root,
+    )
+
+    model_results = []
+
+    # BPR：默认不跑，接口保留，include_bpr=True 时启用
+    if include_bpr:
+        print("\n" + "═" * 60)
+        print("  TwoTower-BPR（对照 B，可选）")
+        print("═" * 60)
+        r_bpr = run_two_tower_pipeline(**tt_shared, weighted=False)
+        model_results.append(r_bpr)
+
+    print("\n" + "═" * 60)
+    print("  TwoTower-WBPR（对照）")
+    print("═" * 60)
+    r_wbpr = run_two_tower_pipeline(**tt_shared, weighted=True)
+    model_results.append(r_wbpr)
+
+    print("\n" + "═" * 60)
+    print("  SASRec（实验）")
+    print("═" * 60)
+    r_sasrec = run_sasrec_pipeline(
+        n_epochs=n_epochs, top_k=top_k, patience=patience,
+        eligible_video_ids=eligible_video_ids,
+        output_dir=None,
+        checkpoint_dir=ckpt_root,
+    )
+    model_results.append(r_sasrec)
+
+    gt = load_ground_truth()
+    df_cmp = compare_models(model_results, gt, top_k=top_k)
+    print_comparison(df_cmp)
+
+    # 统计显著性：WBPR vs SASRec（固定对比主角，不受 include_bpr 影响）
+    from ab_test import t_test
+    m_wbpr   = evaluate(r_wbpr["recommendations"],   gt, top_k=top_k, return_per_user=True)
+    m_sasrec = evaluate(r_sasrec["recommendations"], gt, top_k=top_k, return_per_user=True)
+    pu_wbpr   = m_wbpr["_per_user"]
+    pu_sasrec = m_sasrec["_per_user"]
+
+    print("\n── 统计显著性检验：WBPR vs SASRec（双样本 Welch t-test，α=0.05）───")
+    for metric, key in [("Hit Rate", "hit_rates"), ("avg_watch_ratio", "avg_wrs"), ("NDCG", "ndcgs")]:
+        res = t_test(pu_wbpr[key], pu_sasrec[key])
+        sig = "显著 ✓" if res["is_significant"] else "不显著 ✗"
+        print(f"  {metric:20s}  p={res['p_value']:.4f}  {sig}")
+    print("────────────────────────────────────────────────────────────────\n")
+
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        df_cmp.to_csv(output_dir / "sasrec_comparison.csv", index=False, encoding="utf-8-sig")
+        print(f"[Eval] 对比结果已保存：{output_dir / 'sasrec_comparison.csv'}")
+
+    return df_cmp
+
+
+# ══════════════════════════════════════════════════════════════════════
 # CLI
 # ══════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="对比 TwoTower-BPR vs TwoTower-WBPR。")
-    parser.add_argument("--n-epochs",  type=int, default=50)
-    parser.add_argument("--top-k",     type=int, default=50)
-    parser.add_argument("--patience",  type=int, default=5)
+    parser = argparse.ArgumentParser(description="推荐模型离线对比。")
+    parser.add_argument("--experiment", type=str, default="v2",
+                        choices=["v1", "v2"],
+                        help="v1=BPR vs WBPR（实验一）；v2=WBPR vs SASRec（实验二，默认）")
+    parser.add_argument("--n-epochs",   type=int, default=50)
+    parser.add_argument("--top-k",      type=int, default=50)
+    parser.add_argument("--patience",   type=int, default=5)
+    parser.add_argument("--include-bpr", action="store_true",
+                        help="实验二中同时运行 BPR（三模型对比）")
     parser.add_argument("--output-dir", type=str, default=None)
     args = parser.parse_args()
 
@@ -262,4 +350,10 @@ if __name__ == "__main__":
         Path(__file__).resolve().parents[1] / "output"
     )
 
-    run_comparison(n_epochs=args.n_epochs, top_k=args.top_k, patience=args.patience, output_dir=out)
+    if args.experiment == "v1":
+        run_comparison(n_epochs=args.n_epochs, top_k=args.top_k, patience=args.patience, output_dir=out)
+    else:
+        run_comparison_v2(
+            n_epochs=args.n_epochs, top_k=args.top_k, patience=args.patience,
+            include_bpr=args.include_bpr, output_dir=out,
+        )

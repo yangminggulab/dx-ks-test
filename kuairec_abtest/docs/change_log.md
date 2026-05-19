@@ -1,5 +1,27 @@
 # 项目变更日志
 
+## 2026-05-19
+
+### 新增 SASRec 序列推荐模型 + 实验二对比框架
+
+**scripts/sasrec.py（新增）**
+- 实现 SASRec（Self-Attentive Sequential Recommendation）召回模型。
+- 用户历史视频序列 → Transformer（因果自注意力 + 位置编码）→ 当前兴趣向量。
+- 训练方式：WBPR loss（与 Two-Tower 保持一致，公平对比）；Early Stopping（patience=5）；每 epoch 保存 `_latest.pt` / `_best.pt`，支持中断续训。
+- 推理：预计算全量视频归一化 embedding（同双塔离线索引逻辑），用户序列最后位置向量做内积检索 top-K。
+- 没有序列（交互 < 2 条）的用户给空推荐，保证 user_ids 全覆盖，不影响评估框架。
+
+**scripts/eval_recommenders.py（修改）**
+- 新增 `run_comparison_v2`：TwoTower-WBPR（对照）vs SASRec（实验）。
+- `include_bpr=True` 可随时将 TwoTower-BPR 重新加入三模型对比，接口保留，默认不运行。
+- CLI 新增 `--experiment v1/v2`（默认 v2）和 `--include-bpr` 开关。
+- 实验一（`run_comparison`，BPR vs WBPR）代码完整保留，不受影响。
+
+**实验设计**：
+- 对照组：TwoTower-WBPR（实验一冠军）
+- 实验组：SASRec
+- 假设：序列 Transformer 捕捉时序依赖，Hit Rate / NDCG / avg_watch_ratio 显著优于静态双塔
+
 ## 2026-05-18
 
 ### Two-Tower Early Stopping + 为 Transformer 做准备
