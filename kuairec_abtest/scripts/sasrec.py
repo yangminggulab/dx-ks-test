@@ -60,12 +60,14 @@ DEFAULT_MAX_SEQ  = 50     # 截断序列长度（取最近 50 条历史）
 DEFAULT_DROPOUT  = 0.2
 DEFAULT_N_EPOCHS = 50
 DEFAULT_LR       = 1e-3
-DEFAULT_BATCH    = 512    # 序列模型 batch 比双塔小（每条样本是一段序列）
+DEFAULT_BATCH    = 2048   # CUDA/MPS 下序列模型推荐值；CPU 可改小
 DEFAULT_TOP_K    = 50
 DEFAULT_PATIENCE = 5
 
 
 def _get_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
     if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
@@ -305,8 +307,9 @@ def run_sasrec_pipeline(
     if len(train_ds) == 0:
         raise ValueError("[SASRec] 训练集为空，请检查数据。")
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=0)
-    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=0)
+    pin = device.type == "cuda"
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=0, pin_memory=pin)
+    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=pin)
 
     print(f"[SASRec] 训练集 {len(train_ds):,} 样本，验证集 {len(val_ds):,} 样本。")
 

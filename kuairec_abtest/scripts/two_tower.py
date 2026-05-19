@@ -89,6 +89,8 @@ DEFAULT_TOP_K    = 50
 
 
 def _get_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
     if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
@@ -396,8 +398,9 @@ def run_two_tower_pipeline(
 
     train_ds = TwoTowerBPRDataset(u_arr[train_idx], i_arr[train_idx], r_arr[train_idx], n_items)
     val_ds   = TwoTowerBPRDataset(u_arr[val_idx],   i_arr[val_idx],   r_arr[val_idx],   n_items)
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=0)
-    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=0)
+    pin = device.type == "cuda"
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=0, pin_memory=pin)
+    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=pin)
 
     # 5. 模型 & 优化器
     user_tower = UserTower(n_users, emb_dim, hidden_dim, out_dim).to(device)
