@@ -53,7 +53,7 @@ DEFAULT_DROPOUT   = 0.2
 DEFAULT_MASK_PROB = 0.2     # Masked Item Prediction 的遮盖概率
 DEFAULT_N_EPOCHS  = 50
 DEFAULT_LR        = 1e-3
-DEFAULT_BATCH     = 2048
+DEFAULT_BATCH     = 256    # CrossEntropy logits=(B*50*9383)，2048会OOM，256≈0.5GB安全
 DEFAULT_TOP_K     = 50
 DEFAULT_PATIENCE  = 5
 
