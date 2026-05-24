@@ -409,7 +409,7 @@ def run_cl4srec_pipeline(
         ckpt_path      = checkpoint_dir / "cl4srec_latest.pt"
         best_ckpt_path = checkpoint_dir / "cl4srec_best.pt"
         if ckpt_path.exists():
-            ckpt = torch.load(ckpt_path, map_location=device)
+            ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
             model.load_state_dict(ckpt["model"])
             optimizer.load_state_dict(ckpt["optimizer"])
             start_epoch      = ckpt["epoch"] + 1
@@ -544,7 +544,7 @@ def run_cl4srec_pipeline(
         model.load_state_dict(best_model_state)
         print(f"[CL4SRec] 已加载最佳权重（val_loss={best_val_loss:.6f}）")
     elif best_ckpt_path is not None and best_ckpt_path.exists():
-        best = torch.load(best_ckpt_path, map_location=device)
+        best = torch.load(best_ckpt_path, map_location=device, weights_only=False)
         model.load_state_dict(best["model"])
         print(f"[CL4SRec] 已从磁盘加载最佳权重（val_loss={best['val_loss']:.6f}）")
 
