@@ -5,25 +5,32 @@
   实验设计（对照组 → 实验组，每轮验证一个技术增量）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  实验 A  SASRec  →  BERT4Rec
-          问题：单向 vs 双向注意力，哪个对序列建模更好？
-          对照组：SASRec（因果 Transformer）
-          实验组：BERT4Rec（双向 Transformer + MIP）
+  链式对比：每一步只和上一步比，验证该技术增量的净收益。
 
-  实验 B  SASRec  →  SideInfo-SASRec
-          问题：加入视频内容特征（类别+时长）有没有收益？
-          对照组：SASRec（纯 ID embedding）
-          实验组：SideInfo-SASRec（ID + 内容特征融合）
+  实验 A  TwoTower-WBPR  →  SASRec        （Step3 → Step4）
+          问题：静态用户向量 vs 序列 Transformer，序列信息有多大价值？
+          对照组：TwoTower-WBPR（已有结果，从上次实验加载）
+          实验组：SASRec（因果自注意力序列推荐）
 
-  实验 C  SASRec  →  CL4SRec
-          问题：自监督对比学习能否提升序列表示质量？
-          对照组：SASRec（纯 WBPR）
+  实验 B  SASRec  →  BERT4Rec              （Step4 → Step5）
+          问题：单向（因果）vs 双向注意力，哪个序列建模更充分？
+          对照组：SASRec（只能看历史）
+          实验组：BERT4Rec（上下文双向建模 + Masked Item Prediction）
+
+  实验 C  BERT4Rec  →  SideInfo-SASRec    （Step5 → Step6）
+          问题：在序列模型上加入视频内容特征，能否带来额外收益？
+          对照组：BERT4Rec（纯 ID 序列）
+          实验组：SideInfo-SASRec（ID + 视频类别/时长特征融合）
+
+  实验 D  SideInfo-SASRec  →  CL4SRec     （Step6 → Step7）
+          问题：自监督对比学习能否进一步提升序列表示的鲁棒性？
+          对照组：SideInfo-SASRec（监督学习）
           实验组：CL4SRec（WBPR + InfoNCE 对比学习）
 
-  实验 D  CL4SRec  →  LLMRec
-          问题：LLM 精排能否在最佳深度模型上进一步提升？
+  实验 E  CL4SRec  →  LLMRec              （Step7 → 前沿）
+          问题：LLM 精排能否在最强深度模型上进一步提升最终效果？
           对照组：CL4SRec（当前最强深度模型）
-          实验组：LLMRec（CL4SRec召回 + LLM精排）
+          实验组：LLMRec（CL4SRec 召回 + LLM 精排）
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   断连安全机制（三重保险）
@@ -91,22 +98,38 @@ LOG_PATH    = OUTPUT_DIR / "experiment.log"
 # 运行顺序：SASRec 先跑（是三个实验的对照组），结果可复用
 # 每个模型只训练一次，多个实验引用同一份结果
 #
+# 训练顺序（wbpr 不在此列，它的结果直接从上次实验加载）
 MODEL_ORDER = ["sasrec", "bert4rec", "sideinfo", "cl4srec", "llmrec"]
 
 # 实验对照定义：(对照组模型key, 实验组模型key, 实验ID, 实验说明)
+# 链式结构：每步只和上一步比，验证单个技术增量的净收益
 EXPERIMENTS = [
-    ("sasrec",   "bert4rec",  "A", "单向 vs 双向注意力（SASRec → BERT4Rec）"),
-    ("sasrec",   "sideinfo",  "B", "无侧信息 vs 有侧信息（SASRec → SideInfo-SASRec）"),
-    ("sasrec",   "cl4srec",   "C", "无对比学习 vs 有对比学习（SASRec → CL4SRec）"),
-    ("cl4srec",  "llmrec",    "D", "深度模型 vs LLM精排（CL4SRec → LLMRec）"),
+    ("wbpr",     "sasrec",    "A", "静态双塔 vs 序列Transformer（Step3 → Step4）"),
+    ("sasrec",   "bert4rec",  "B", "单向 vs 双向注意力（Step4 → Step5）"),
+    ("bert4rec", "sideinfo",  "C", "纯ID序列 vs +视频侧特征（Step5 → Step6）"),
+    ("sideinfo", "cl4srec",   "D", "监督学习 vs +对比学习（Step6 → Step7）"),
+    ("cl4srec",  "llmrec",    "E", "深度模型 vs LLM精排（Step7 → 前沿）"),
 ]
 
 DISPLAY_NAME = {
-    "sasrec":   "SASRec     (Step4)",
-    "bert4rec": "BERT4Rec   (Step5)",
-    "sideinfo": "SideInfo   (Step6)",
-    "cl4srec":  "CL4SRec    (Step7)",
-    "llmrec":   "LLMRec     (前沿)",
+    "wbpr":     "TwoTower-WBPR (Step3)",
+    "sasrec":   "SASRec        (Step4)",
+    "bert4rec": "BERT4Rec      (Step5)",
+    "sideinfo": "SideInfo      (Step6)",
+    "cl4srec":  "CL4SRec       (Step7)",
+    "llmrec":   "LLMRec        (前沿)",
+}
+
+# WBPR 历史指标（上次实验已完成，直接硬编码结果）
+# 来源：output/two_tower_comparison.csv
+WBPR_KNOWN_METRICS = {
+    "model_key":        "wbpr",
+    "model_name":       "TwoTower-WBPR",
+    "train_min":        0.0,   # 历史结果，不重新计时
+    "n_users":          1411,
+    "hit_rate":         0.02095,
+    "avg_watch_ratio":  0.01724,
+    "ndcg":             0.00279,
 }
 
 
@@ -209,7 +232,12 @@ def _train_model(
         checkpoint_dir=CKPT_DIR,
     )
 
-    if model_key == "sasrec":
+    if model_key == "wbpr":
+        # TwoTower-WBPR：checkpoint 已存在则跳过训练直接推理
+        from two_tower import run_two_tower_pipeline
+        return run_two_tower_pipeline(**kwargs, weighted=True)
+
+    elif model_key == "sasrec":
         from sasrec import run_sasrec_pipeline
         return run_sasrec_pipeline(**kwargs)
 
@@ -296,40 +324,42 @@ def _significance_report(
 # 最终汇总表
 # ══════════════════════════════════════════════════════════════════════
 
+FULL_ORDER = ["wbpr", "sasrec", "bert4rec", "sideinfo", "cl4srec", "llmrec"]
+
+
 def _print_final_table(all_metrics: dict[str, dict]) -> None:
-    """打印所有模型的最终指标对比表。"""
-    header = f"{'模型':<28} {'HR@K':>8} {'WR@K':>8} {'NDCG@K':>8} {'训练时长':>10}"
-    sep    = "─" * 68
-    print(f"\n{'═'*68}")
-    print("  最终汇总：各模型离线指标对比")
-    print(f"{'═'*68}")
+    """打印所有模型的最终指标对比表，按 Step3→4→5→6→7→前沿 排列。"""
+    header = f"{'模型':<30} {'HR@K':>8} {'WR@K':>8} {'NDCG@K':>8} {'vs上一步':>10} {'训练时长':>10}"
+    sep    = "─" * 76
+    print(f"\n{'═'*76}")
+    print("  最终汇总：推荐系统演进链路（Step3 → Step4 → Step5 → Step6 → Step7 → 前沿）")
+    print(f"{'═'*76}")
     print(header)
     print(sep)
 
-    baseline_hr   = None
-    baseline_ndcg = None
-    for key in MODEL_ORDER:
+    prev_ndcg = None
+    for key in FULL_ORDER:
         if key not in all_metrics:
             continue
-        m = all_metrics[key]
-        hr   = m.get("hit_rate")   or 0
-        wr   = m.get("avg_watch_ratio") or 0
-        ndcg = m.get("ndcg")       or 0
-        mins = m.get("train_min")  or 0
+        m    = all_metrics[key]
+        hr   = m.get("hit_rate")        or 0.0
+        wr   = m.get("avg_watch_ratio") or 0.0
+        ndcg = m.get("ndcg")            or 0.0
+        mins = m.get("train_min")       or 0.0
 
-        if baseline_hr is None:
-            baseline_hr   = hr
-            baseline_ndcg = ndcg
-
-        lift_hr   = f"({(hr - baseline_hr)/(baseline_hr+1e-9):+.1%})" if baseline_hr else ""
-        lift_ndcg = f"({(ndcg - baseline_ndcg)/(baseline_ndcg+1e-9):+.1%})" if baseline_ndcg else ""
+        # vs 上一步的 NDCG 提升（链式对比）
+        if prev_ndcg is not None and prev_ndcg > 0:
+            vs_prev = f"{(ndcg - prev_ndcg)/prev_ndcg:+.1%}"
+        else:
+            vs_prev = "—"
+        prev_ndcg = ndcg
 
         name = DISPLAY_NAME.get(key, key)
         print(
-            f"  {name:<26} {hr:>7.4f}  {wr:>7.4f}  "
-            f"{ndcg:>7.4f}{lift_ndcg:>8}  {mins:>6.1f}min"
+            f"  {name:<28} {hr:>7.4f}  {wr:>7.4f}  "
+            f"{ndcg:>7.4f}  {vs_prev:>9}  {mins:>6.1f}min"
         )
-    print(f"{'═'*68}\n")
+    print(f"{'═'*76}\n")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -369,9 +399,12 @@ def main():
 
     # ── 确定要跑的模型 ────────────────────────────────────────────────
     if args.models:
-        run_keys = args.models
+        run_keys = [k for k in args.models if k != "wbpr"]
     else:
         run_keys = [k for k in MODEL_ORDER if k != "llmrec"] + (["llmrec"] if args.with_llm else [])
+
+    # wbpr 始终加在最前面（实验 A 的对照组），让显著性检验能拿到推荐列表
+    run_keys = ["wbpr"] + [k for k in run_keys if k != "wbpr"]
 
     print(f"  待训练模型：{run_keys}\n")
 
@@ -380,7 +413,8 @@ def main():
     all_recs:    dict[str, dict]  = {}   # model_key -> {uid: [vid,...]}
     all_metrics: dict[str, dict]  = {}   # model_key -> result JSON dict
 
-    # 先加载已有结果（用于跳过）
+    # 先加载已有结果（用于跳过）；wbpr 直接注入历史指标
+    all_metrics["wbpr"] = WBPR_KNOWN_METRICS
     for key in MODEL_ORDER:
         saved = _load_result(key)
         if saved:
@@ -503,7 +537,7 @@ def main():
     try:
         import pandas as pd
         rows = []
-        for key in MODEL_ORDER:
+        for key in FULL_ORDER:
             if key not in all_metrics:
                 continue
             m = all_metrics[key]
