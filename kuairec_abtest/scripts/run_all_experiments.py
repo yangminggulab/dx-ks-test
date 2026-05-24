@@ -163,11 +163,15 @@ def _setup_logging(log_path: Path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 结果持久化（逐模型 JSON）
+# 结果持久化（逐模型 JSON + 推荐列表 pickle）
 # ══════════════════════════════════════════════════════════════════════
 
 def _result_path(model_key: str) -> Path:
     return RESULT_DIR / f"{model_key}_result.json"
+
+def _recs_path(model_key: str) -> Path:
+    """推荐列表持久化路径（pickle，用于重启后的显著性检验）。"""
+    return RESULT_DIR / f"{model_key}_recs.pkl"
 
 
 def _load_result(model_key: str) -> dict | None:
@@ -175,6 +179,24 @@ def _load_result(model_key: str) -> dict | None:
     if p.exists():
         with open(p, encoding="utf-8") as f:
             return json.load(f)
+    return None
+
+
+def _save_recs(model_key: str, recs: dict) -> None:
+    """把 {uid: [vid,...]} 存成 pickle，重启后可直接加载做显著性检验。"""
+    import pickle
+    RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    with open(_recs_path(model_key), "wb") as f:
+        pickle.dump(recs, f, protocol=4)
+
+
+def _load_recs(model_key: str) -> dict | None:
+    """从 pickle 加载推荐列表，不存在则返回 None。"""
+    import pickle
+    p = _recs_path(model_key)
+    if p.exists():
+        with open(p, "rb") as f:
+            return pickle.load(f)
     return None
 
 
@@ -426,11 +448,14 @@ def main():
 
         if saved and not args.force:
             print(f"[SKIP] {display} — 已有结果（{saved.get('train_min',0):.1f}min），跳过训练。")
-            print(f"       如需重新训练，加 --force 参数。\n")
-            # 注意：结果 JSON 没存 recommendations（太大），
-            # 如果后续实验需要该模型的推荐列表，必须重新推理
-            # → 此处标记为 "需要重新推理" 状态，推理很快（无梯度）
             all_metrics[model_key] = saved
+            # 尝试从磁盘加载推荐列表（显著性检验需要）
+            cached_recs = _load_recs(model_key)
+            if cached_recs is not None:
+                all_recs[model_key] = cached_recs
+                print(f"       推荐列表已从缓存加载（{len(cached_recs):,} 用户）。\n")
+            else:
+                print(f"       推荐列表缓存不存在，显著性检验时将重新推理。\n")
             continue
 
         print(f"\n{'━'*70}")
@@ -443,8 +468,9 @@ def main():
             result = _train_model(model_key, args.n_epochs, args.top_k, args.patience)
             elapsed = time.time() - t0
 
-            # 保存推荐列表到内存（用于实验对比）
+            # 保存推荐列表：内存 + 磁盘（断连重启后可直接加载）
             all_recs[model_key] = result["recommendations"]
+            _save_recs(model_key, result["recommendations"])
 
             # 持久化基础指标
             _save_result(model_key, result, elapsed)
