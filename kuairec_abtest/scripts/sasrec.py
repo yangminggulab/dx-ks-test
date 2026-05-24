@@ -374,7 +374,8 @@ def run_sasrec_pipeline(
             w_b   = w_b.to(device)
 
             pos_score, neg_score = model(seq_b, pos_b, neg_b)
-            loss = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
+            # clamp(min=1e-8)：防止 w_b=0 与极端负分相乘产生 0×(-inf)=NaN
+            loss = -(w_b.clamp(min=1e-8) * F.logsigmoid(pos_score - neg_score)).mean()
 
             optimizer.zero_grad()
             loss.backward()
@@ -396,7 +397,7 @@ def run_sasrec_pipeline(
                 neg_b = neg_b.to(device)
                 w_b   = w_b.to(device)
                 pos_score, neg_score = model(seq_b, pos_b, neg_b)
-                vl = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
+                vl = -(w_b.clamp(min=1e-8) * F.logsigmoid(pos_score - neg_score)).mean()
                 val_total  += vl.item() * len(seq_b)
                 n_val_seen += len(seq_b)
 
