@@ -1,306 +1,204 @@
-# KuaiRec AB Test 数据分析项目
+# KuaiRec 推荐系统演进项目
 
-用途说明：本项目用于搭建一个模拟短视频平台推荐策略 AB Test 的数据分析工程骨架，便于后续开展数据抽取、指标分析、显著性检验与结果可视化。
+基于快手 KuaiRec 2.0 真实数据集，从零搭建完整的推荐系统技术演进链路，覆盖 AB Test 工程基础、传统协同过滤、深度序列推荐到 LLM 精排前沿方案。
 
-## 环境要求
+---
 
-- Python 3.10+
-- UTF-8 编码
-
-## 安装依赖
-
-```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-pip install -r requirements.txt
-```
-
-## 目录结构与用途
+## 项目结构
 
 ```text
 kuairec_abtest/
-├── data/
-├── docs/
-├── notebooks/
+├── data/KuaiRec 2.0/data/      原始数据（big_matrix, small_matrix, 特征表）
 ├── output/
-├── scripts/
-├── sql/
-├── README.md
-└── requirements.txt
+│   ├── checkpoints/            模型 checkpoint（每 epoch 保存，断点续训）
+│   ├── results/                每个模型的评估指标 JSON + 推荐列表 pkl
+│   └── experiment.log          训练全程日志
+├── scripts/                    所有 Python 脚本（见下方说明）
+└── docs/                       设计文档与变更日志
 ```
 
-- `data/`：存放原始数据、抽样数据和中间结果数据。
-- `docs/`：存放项目背景、分析规范、指标定义等文档。
-- `notebooks/`：存放 Jupyter Notebook，便于进行探索性分析与结果展示。
-- `output/`：存放图表、分析结果导出文件和临时产物。
-- `scripts/`：存放数据库连接、数据读取、统计检验、可视化等 Python 脚本。
-- `sql/`：存放建表、分组、指标统计、A/A Test 等 SQL 模板。
-- `README.md`：项目总览与使用说明。
-- `requirements.txt`：Python 依赖清单。
+---
 
-## 当前阶段任务
+## 推荐系统演进路线
 
-1. 建立 MySQL 连接模板。
-2. 准备 SQL 分析模板。
-3. 准备统计检验与可视化脚本。
-4. 为后续 AB Test 业务分析提供可复用的工程基础。
+```
+AB Test 工程  →  SVD  →  TwoTower-BPR  →  TwoTower-WBPR  →  SASRec  →  BERT4Rec  →  SideInfo  →  CL4SRec  →  LLMRec
+    (基础)       (协同)      (Step1)            (Step3)          (Step4)     (Step5)      (Step6)     (Step7)     (前沿)
+```
 
-## 最小运行测试
+### 模型说明
 
-如果当前验收目标只是确认项目骨架可运行，可以执行以下命令：
+| 模型 | 文件 | 核心创新点 | 对照实验 |
+|---|---|---|---|
+| TwoTower-WBPR | `two_tower.py` | watch_ratio 加权 BPR | Step3 基线 |
+| SASRec | `sasrec.py` | 因果自注意力序列推荐 | **实验A**：WBPR → SASRec |
+| BERT4Rec | `bert4rec.py` | 双向注意力 + Masked Item Prediction | **实验B**：SASRec → BERT4Rec |
+| SideInfo-SASRec | `sideinfo_rec.py` | ID + 视频类别/时长特征融合 | **实验C**：BERT4Rec → SideInfo |
+| CL4SRec | `cl4srec.py` | 对比学习（InfoNCE）+ 三种数据增强 | **实验D**：SideInfo → CL4SRec |
+| LLMRec | `llm_rec.py` | SASRec 召回 + 本地 LLM 精排 | **实验E**：CL4SRec → LLMRec |
+
+### 评估指标
+
+所有模型在 `small_matrix.csv`（密集答案本，~1000用户 × 3700视频）上离线评估：
+
+- **Hit Rate@50**：推荐列表中用户真实看过的比例
+- **avg_watch_ratio@50**：推荐视频的平均完播率
+- **NDCG@50**：命中+排名综合指标（排名靠前的命中贡献更多）
+
+每对相邻模型做 Welch t-test（逐用户指标），判断提升是否统计显著。
+
+---
+
+## 快速开始
+
+### 环境要求
 
 ```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-MPLCONFIGDIR=/tmp/mpl XDG_CACHE_HOME=/tmp python3 scripts/smoke_test.py
+Python 3.10+
+PyTorch 2.x（CUDA 12.x 推荐）
+pip install pandas numpy scipy scikit-learn torch
 ```
 
-预期结果：
+### 在 GPU 服务器上训练（推荐）
 
-- t 检验与卡方检验能够正常输出结果。
-- `output/` 目录下生成两张示例图片。
-- 若尚未填写数据库账号密码，数据库连接会打印失败原因，这属于模板阶段的正常现象。
-
-## KuaiRec 真实数据检查
-
-当 `KuaiRec` 数据下载并解压到 `data/` 目录后，可以执行以下命令验证关键 CSV 是否可读取：
+**Mac 端一键操作**（代码同步 + 远程启动，断 SSH 不影响训练）：
 
 ```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-python3 scripts/check_kuairec_data.py
+cd /Users/liubike/Desktop/快手test/kuairec_abtest/scripts
+
+bash sync_and_run.sh           # 同步代码 + 启动全部实验（不含 LLM）
+bash sync_and_run.sh --status  # 查看进度 + 已完成模型指标
+bash sync_and_run.sh --log     # 实时追看训练日志（Ctrl+C 停止查看）
+bash sync_and_run.sh --kill    # 停止训练（checkpoint 已保存，可续训）
 ```
 
-该脚本会检查：
+服务器配置（RTX 4060，WSL2）：
+- SSH：`thisislbk@192.168.1.18 -p 2222`
+- 代码路径：`~/kuairec_abtest/`
 
-- `small_matrix.csv`
-- `big_matrix.csv`
-- `user_features.csv`
-- `item_daily_features.csv`
-- `item_categories.csv`
-
-## KuaiRec 导入 MySQL
-
-如果你希望直接使用 Python 从 MySQL 读取 KuaiRec 数据，建议按以下顺序执行：
-
-1. 在 [db_config.py](/Users/liubike/Desktop/快手test/kuairec_abtest/scripts/db_config.py) 中填写 `DB_HOST`、`DB_PORT`、`DB_NAME`、`DB_USER`、`DB_PASSWORD`。
-2. 先运行 dry-run，确认脚本能够定位到真实数据文件：
+### 在本地直接训练
 
 ```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-python3 scripts/import_kuairec_to_mysql.py --dry-run
+cd kuairec_abtest/scripts
+
+# 全流程（Step3→4→5→6→7，不含 LLM）
+python run_all_experiments.py
+
+# 含 LLM 精排（需先启动 Ollama）
+python run_all_experiments.py --with-llm
+
+# 只训练指定模型
+python run_all_experiments.py --models sasrec bert4rec
+
+# 快速验证（10 epoch）
+python run_all_experiments.py --n-epochs 10 --patience 3
+
+# 强制重跑（忽略已有 checkpoint）
+python run_all_experiments.py --force
 ```
 
-3. 先导入核心表，跑通最小链路：
+### 断点续训
+
+训练中途断连或手动停止后，重新执行相同命令即可自动恢复：
+
+- 已完成模型：从 `results/*.json` 跳过，推荐列表从 `results/*.pkl` 加载
+- 未完成模型：从 `checkpoints/*_latest.pt` 恢复到中断的 epoch
+
+---
+
+## 脚本说明
+
+### 核心模型
+
+| 脚本 | 用途 |
+|---|---|
+| `sasrec.py` | SASRec 序列推荐（Step4） |
+| `bert4rec.py` | BERT4Rec 双向序列推荐（Step5） |
+| `sideinfo_rec.py` | SASRec + 视频侧特征（Step6） |
+| `cl4srec.py` | CL4SRec 对比学习（Step7） |
+| `llm_rec.py` | LLM 精排前沿方案 |
+| `two_tower.py` | TwoTower 双塔召回（Step3 基线） |
+| `svd_recommender.py` | SVD 协同过滤 |
+
+### 评估与实验
+
+| 脚本 | 用途 |
+|---|---|
+| `run_all_experiments.py` | **主入口**：全流程训练+评估+显著性检验 |
+| `eval_advanced.py` | 单次多模型对比评估 |
+| `eval_recommenders.py` | 离线评估核心函数（load_ground_truth / evaluate） |
+| `ab_test.py` | Welch t-test 工具函数 |
+
+### 运维脚本
+
+| 脚本 | 用途 |
+|---|---|
+| `sync_and_run.sh` | Mac 端一键同步+启动（SSH → WSL2） |
+| `run_server.sh` | WSL2 服务器端启动脚本 |
+
+### AB Test 工程基础
+
+| 脚本 | 用途 |
+|---|---|
+| `run_first_abtest.py` | 第一版 AB Test（基于 MySQL） |
+| `run_abtest_pipeline.py` | AB Test 一键流水线 |
+| `export_tableau_data.py` | 导出 Tableau 看板数据 |
+| `import_kuairec_to_mysql.py` | KuaiRec 数据导入 MySQL |
+
+---
+
+## 输出文件说明
+
+训练完成后，`output/` 目录结构如下：
+
+```text
+output/
+├── checkpoints/
+│   ├── sasrec_best.pt          各模型最佳权重
+│   ├── sasrec_latest.pt        各模型最新权重（用于续训）
+│   ├── bert4rec_best.pt
+│   └── ...
+├── results/
+│   ├── sasrec_result.json      各模型评估指标
+│   ├── sasrec_recs.pkl         各模型推荐列表（断连续跑显著性检验用）
+│   ├── bert4rec_result.json
+│   ├── ...
+│   └── significance_tests.json 各实验 t-test 结果
+├── all_models_comparison.csv   全模型汇总对比表
+└── experiment.log              训练全程日志
+```
+
+---
+
+## LLM 精排说明
+
+LLMRec 使用本地 Ollama 运行，无需 API key：
 
 ```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-python3 scripts/import_kuairec_to_mysql.py
+# 服务器上安装并启动
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5:7b
+ollama serve &
+
+# 然后启动实验
+python run_all_experiments.py --with-llm
 ```
 
-4. 如果需要完整行为量级，再额外导入 `big_matrix`：
+若 Ollama 未启动，LLMRec 自动 fallback 为 SASRec 召回结果（流水线不报错）。
 
-```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-python3 scripts/import_kuairec_to_mysql.py --tables big_matrix --chunk-size 20000
-```
+---
 
-5. 导入完成后检查各表行数：
+## 已知历史实验结果（Step3 基线）
 
-```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-python3 scripts/check_mysql_import.py
-```
+| 模型 | Hit Rate@50 | avg_watch_ratio | NDCG@50 |
+|---|---|---|---|
+| TwoTower-BPR | 0.0060 | 0.0050 | 0.0008 |
+| TwoTower-WBPR | 0.0210 | 0.0172 | 0.0028 |
 
-默认导入的核心表包括：
+WBPR 相对 BPR 提升约 +249%（NDCG），Step4 起以 WBPR 为基线做链式对比。
 
-- `kuairec_small_matrix`
-- `kuairec_user_features`
-- `kuairec_item_daily_features`
-- `kuairec_item_categories`
+---
 
-可选大表：
+## 变更日志
 
-- `kuairec_big_matrix`
-
-如果你更习惯在 `MySQL Workbench` 里先手动建表，再导入数据，可以参考：
-
-- [05_kuairec_raw_tables.sql](/Users/liubike/Desktop/快手test/kuairec_abtest/sql/05_kuairec_raw_tables.sql)
-
-## 第一版 AB Test
-
-如果你希望直接运行一版基于真实 KuaiRec 数据的离线 AB Test，可以执行：
-
-```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-MPLCONFIGDIR=/tmp/mpl XDG_CACHE_HOME=/tmp python3 scripts/run_first_abtest.py
-```
-
-该脚本会自动完成：
-
-- 从 MySQL 读取 `kuairec_small_matrix` 与 `kuairec_user_features`
-- 按 `user_id` 做稳定分流，构造 `control` / `treatment`
-- 生成用户级完播率、曝光级列联表、显著性检验与分层结果
-- 输出图表、CSV 文件和 Markdown 报告
-
-主要输出文件位于 `output/`：
-
-- `abtest_v1_report.md`
-- `abtest_v1_group_summary.csv`
-- `abtest_v1_segment_summary.csv`
-- `abtest_v1_completion_distribution.png`
-- `abtest_v1_completion_mean.png`
-
-如果你希望把“设计文档生成 + 分析 + Tableau 数据导出”一条命令全部跑完，可以执行：
-
-```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-MPLCONFIGDIR=/tmp/mpl XDG_CACHE_HOME=/tmp python3 scripts/run_abtest_pipeline.py
-```
-
-这个一键入口会额外生成：
-
-- `abtest_v1_design.json`
-- `abtest_v1_design.md`
-- `abtest_v1_exposure_summary.csv`
-- `abtest_v1_run_manifest.json`
-- `output/tableau/tableau_manifest.json`
-
-## 第一版 AB Test 设计思路
-
-这一版的目标不是直接替业务做最终上线决策，而是先搭出一条可复用的 AB Test 基础链路：能稳定分流、能算核心指标、能做显著性检验、能输出看板数据。
-
-### 1. 实验目标
-
-- 模拟验证“推荐策略调整后，是否能提升用户级完播率”。
-- 为后续更复杂的推荐策略实验提供最小可复用模板。
-
-### 2. 实验假设
-
-- 原假设 `H0`：实验组与对照组在用户级完播率上没有显著差异。
-- 备择假设 `H1`：实验组与对照组在用户级完播率上存在显著差异。
-
-这一版先用“双侧检验”判断是否有差异，后续如果策略方向非常明确，可以再讨论是否切换为单侧检验。
-
-### 3. 分流设计
-
-- 分流单位：`user_id`
-- 分流方式：`CRC32(user_id) % 2`
-- 分组结果：
-  - `control`
-  - `treatment`
-
-这样设计的原因：
-
-- 用用户级分流，比曝光级分流更符合推荐策略实验的真实口径。
-- 同一用户稳定落在同一组，能避免用户跨组污染。
-- 规则简单，可复现，方便离线模拟与面试展示。
-
-### 4. 指标设计
-
-核心指标：
-
-- `avg_completion_rate`
-
-原因：
-
-- 完播率和短视频推荐效果高度相关。
-- 用户级完播率比曝光级完播率更能反映真实用户体验。
-
-辅助指标：
-
-- `avg_watch_ratio`
-- `avg_play_duration`
-
-原因：
-
-- 避免只看完播率造成片面判断。
-- 如果完播率变化不显著，辅助指标仍能帮助判断策略是否影响观看深度。
-
-分层观察指标：
-
-- `user_active_degree`
-
-原因：
-
-- 不同活跃层级用户对策略的反应可能不同。
-- 即使总体结果一般，分层结果也可能提供策略优化方向。
-
-### 5. 统计检验设计
-
-用户级检验：
-
-- 对 `completion_rate`、`avg_watch_ratio`、`avg_play_duration` 做 `t-test`
-
-曝光级检验：
-
-- 对完播 / 未完播列联表做 `chi-square test`
-
-设计原则：
-
-- 用户级检验优先用于判断策略是否真正改善用户体验。
-- 曝光级检验只作为补充，不单独作为上线依据。
-
-### 6. 第一版判定标准
-
-这一版先采用最基础的判断框架：
-
-- 统计显著性：`p-value < 0.05`
-- 方向正确：实验组核心指标优于对照组
-- 业务可解释：差值不能只“显著但几乎没有业务意义”
-- 分层无明显异常：不能出现核心用户群明显受损
-
-### 7. 当前结果应如何理解
-
-从当前输出看：
-
-- 实验组用户级完播率略低于对照组
-- 用户级 `t-test` 不显著
-- 曝光级卡方检验显著
-
-这说明：
-
-- 当前第一版策略没有证明自己在用户级完播率上更优
-- 超大样本下，曝光级非常容易检出微小差异
-- 后续汇报应优先强调“用户级口径 + 业务意义”，而不是只强调曝光级显著
-
-### 8. 为什么这只是第一版
-
-第一版设计的重点是“先跑通”，不是“一次定终局”。
-
-后续第二版、第三版可以继续迭代这些点：
-
-- 是否增加护栏指标
-- 是否增加实验周期与样本量评估
-- 是否进一步按用户、内容、时段做分层
-- 是否把不同推荐策略抽象成 `A/B/C/D` 可切换方案
-- 是否把上线判定标准写得更业务化
-
-如果把这个项目用于面试或汇报，可以把第一版定义为：
-
-- “搭建 AB Test 最小闭环”
-- “验证核心指标口径”
-- “为后续策略实验提供模板”
-
-## Tableau 数据准备
-
-如果你想把当前 AB Test 结果接入 Tableau，可以执行：
-
-```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest
-python3 scripts/export_tableau_data.py
-```
-
-该脚本会在 `output/tableau/` 下生成 Tableau 友好的 CSV：
-
-- `tableau_kpi_cards.csv`
-- `tableau_group_metrics_long.csv`
-- `tableau_segment_metrics_long.csv`
-- `tableau_user_distribution.csv`
-
-接入说明见：
-
-- [tableau_setup.md](/Users/liubike/Desktop/快手test/kuairec_abtest/docs/tableau_setup.md)
-
-## 提交日志
-
-从当前版本开始，项目内维护一份独立变更日志，记录每次较大的方案或代码调整：
-
-- [change_log.md](/Users/liubike/Desktop/快手test/kuairec_abtest/docs/change_log.md)
+详见 [docs/change_log.md](kuairec_abtest/docs/change_log.md)
