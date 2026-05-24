@@ -454,7 +454,7 @@ def run_cl4srec_pipeline(
             neg_emb  = model.item_emb(neg_b)
             pos_score = (last_out * pos_emb).sum(-1)
             neg_score = (last_out * neg_emb).sum(-1)
-            wbpr_loss = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
+            wbpr_loss = -(w_b.clamp(min=1e-8) * F.logsigmoid(pos_score - neg_score)).mean()
 
             # ── InfoNCE loss（两路增强视图）───────────────────────────
             z1 = model.get_last(aug1_b)
@@ -489,7 +489,7 @@ def run_cl4srec_pipeline(
                 neg_emb   = model.item_emb(neg_b)
                 ps = (last_out * pos_emb).sum(-1)
                 ns = (last_out * neg_emb).sum(-1)
-                vl_wbpr = -(w_b * F.logsigmoid(ps - ns)).mean()
+                vl_wbpr = -(w_b.clamp(min=1e-8) * F.logsigmoid(ps - ns)).mean()
                 vl_cl   = info_nce_loss(model.get_last(aug1_b), model.get_last(aug2_b), temp)
                 vl = vl_wbpr + cl_weight * vl_cl
 

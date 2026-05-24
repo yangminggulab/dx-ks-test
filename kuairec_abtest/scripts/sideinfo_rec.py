@@ -423,7 +423,7 @@ def run_sideinfo_pipeline(
             neg_b = neg_b.to(device)
             w_b   = w_b.to(device)
             pos_score, neg_score = model(seq_b, pos_b, neg_b)
-            loss = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
+            loss = -(w_b.clamp(min=1e-8) * F.logsigmoid(pos_score - neg_score)).mean()
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -442,7 +442,7 @@ def run_sideinfo_pipeline(
                 neg_b = neg_b.to(device)
                 w_b   = w_b.to(device)
                 ps, ns = model(seq_b, pos_b, neg_b)
-                vl = -(w_b * F.logsigmoid(ps - ns)).mean()
+                vl = -(w_b.clamp(min=1e-8) * F.logsigmoid(ps - ns)).mean()
                 val_total  += vl.item() * len(seq_b)
                 n_val_seen += len(seq_b)
 
