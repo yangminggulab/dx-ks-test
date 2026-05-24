@@ -68,9 +68,10 @@ def _run_llmrec(kwargs: dict) -> dict:
     llm_kwargs = {k: v for k, v in kwargs.items() if k in (
         "recall_k", "top_k", "n_epochs", "patience",
         "eligible_video_ids", "output_dir", "checkpoint_dir", "_test_df",
-        "llm_model", "ollama_url", "max_hist",
+        "llm_model", "ollama_url", "max_hist", "recall_model",
     )}
     llm_kwargs.setdefault("recall_k", kwargs.get("top_k", 50))
+    llm_kwargs.setdefault("recall_model", "cl4srec")
     return run_llm_rec_pipeline(**llm_kwargs)
 
 

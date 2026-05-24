@@ -398,6 +398,12 @@ def run_sideinfo_pipeline(
             else:
                 print(f"[SideInfo] 从 checkpoint 恢复：epoch {start_epoch}/{n_epochs}")
 
+    if n_epochs <= 0 and not (
+        (best_ckpt_path is not None and best_ckpt_path.exists()) or
+        (ckpt_path is not None and ckpt_path.exists())
+    ):
+        raise ValueError("[SideInfo] 当前是仅推理模式，但找不到可恢复的 checkpoint。")
+
     print(
         f"[SideInfo] 开始训练：{n_users:,} 用户 × {n_items:,} 视频，"
         f"emb={emb_dim}，heads={n_heads}，layers={n_layers}，feat_dim={FEAT_DIM}"

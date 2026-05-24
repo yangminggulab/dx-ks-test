@@ -10,7 +10,7 @@
     少样本（Few-shot）   在 prompt 里加几条示例，引导 LLM 输出格式
 
   本实现采用"LLM 作为排序器"（LLM as Reranker）的思路：
-    1. SASRec 召回 top-K 候选（粗排，速度快）
+    1. 强基线召回模型先产出 top-K 候选（粗排，速度快）
     2. 用 LLM 对候选做精排（point-wise 评分）
     3. 取 LLM 评分最高的 top-k 作为最终结果
 
@@ -18,8 +18,7 @@
 
 【本地 LLM 支持（无需 API key）】
   默认使用 Ollama（本地部署），模型：qwen2.5:7b 或任意兼容模型。
-  如果 Ollama 不可用，自动 fallback 到"随机重排"（保持接口不变，
-  指标与 SASRec 相同，方便在无 GPU/API 的环境下跑通完整流水线）。
+  如果 Ollama 不可用，自动 fallback 到"召回模型原始排序"（保持接口不变）。
 
 【在 KuaiRec 上的局限性说明（诚实评估，不夸大）】
   KuaiRec 的 video_id 是数字 ID，LLM 没有见过这些视频的文字描述，
@@ -52,11 +51,12 @@ from svd_recommender import (
 )
 
 # ── 常量 ──────────────────────────────────────────────────────────────
-DEFAULT_RECALL_K     = 50    # SASRec 召回候选数（粗排输出）
+DEFAULT_RECALL_K     = 50    # 召回模型候选数（粗排输出）
 DEFAULT_RERANK_K     = 10    # LLM 精排后保留数
 DEFAULT_TOP_K        = 50    # 最终推荐数（recall_k 足够大时等于 recall_k）
 DEFAULT_LLM_MODEL    = "qwen2.5:7b"
 DEFAULT_OLLAMA_URL   = "http://localhost:11434"
+DEFAULT_RECALL_MODEL = "sasrec"
 DEFAULT_BATCH_RERANK = 20    # 每次提交 LLM 排序的候选数
 DEFAULT_MAX_HIST     = 10    # prompt 中展示的历史记录条数（避免超出 context）
 DEFAULT_TEMPERATURE  = 0.0   # 推理时用贪心（temperature=0），保证结果可复现
@@ -211,9 +211,10 @@ def run_llm_rec_pipeline(
     top_k: int = DEFAULT_TOP_K,
     llm_model: str = DEFAULT_LLM_MODEL,
     ollama_url: str = DEFAULT_OLLAMA_URL,
+    recall_model: str = DEFAULT_RECALL_MODEL,
     max_hist: int = DEFAULT_MAX_HIST,
     temperature: float = DEFAULT_TEMPERATURE,
-    n_epochs: int = 50,     # 透传给 SASRec 粗排
+    n_epochs: int = 50,     # 透传给召回模型粗排
     patience: int = 5,
     eligible_video_ids: set | None = None,
     output_dir: Path | None = None,
@@ -223,14 +224,29 @@ def run_llm_rec_pipeline(
     """
     LLM-based 推荐流程（召回 + LLM 精排）。
 
-    Step 1: SASRec 粗排，生成每用户 recall_k 候选。
+    Step 1: 召回模型粗排，生成每用户 recall_k 候选。
     Step 2: LLM 对每用户候选精排（如果 Ollama 不可用则跳过）。
     Step 3: 取最终 top_k 返回。
     """
-    print("[LLMRec] === 阶段 1：SASRec 粗排召回 ===")
-    from sasrec import run_sasrec_pipeline
+    recall_model = recall_model.lower()
+    recall_registry = {
+        "sasrec": ("SASRec", "sasrec"),
+        "cl4srec": ("CL4SRec", "cl4srec"),
+    }
+    if recall_model not in recall_registry:
+        raise ValueError(
+            f"不支持的 recall_model={recall_model}，可选：{', '.join(sorted(recall_registry))}"
+        )
 
-    sasrec_result = run_sasrec_pipeline(
+    recall_display, module_name = recall_registry[recall_model]
+    print(f"[LLMRec] === 阶段 1：{recall_display} 粗排召回 ===")
+
+    if module_name == "sasrec":
+        from sasrec import run_sasrec_pipeline as recall_runner
+    else:
+        from cl4srec import run_cl4srec_pipeline as recall_runner
+
+    recall_result = recall_runner(
         n_epochs=n_epochs,
         top_k=recall_k,
         patience=patience,
@@ -240,13 +256,13 @@ def run_llm_rec_pipeline(
         _test_df=_test_df,
     )
 
-    df             = sasrec_result["_interaction_df"]
-    matrix         = sasrec_result["_matrix"]
-    user_ids       = sasrec_result["_user_ids"]
-    item_ids       = sasrec_result["_item_ids"]
-    n_users        = sasrec_result["n_users"]
-    n_items        = sasrec_result["n_items"]
-    recall_recs    = sasrec_result["recommendations"]   # {uid: [video_id, ...]}
+    df             = recall_result["_interaction_df"]
+    matrix         = recall_result["_matrix"]
+    user_ids       = recall_result["_user_ids"]
+    item_ids       = recall_result["_item_ids"]
+    n_users        = recall_result["n_users"]
+    n_items        = recall_result["n_items"]
+    recall_recs    = recall_result["recommendations"]   # {uid: [video_id, ...]}
 
     print("\n[LLMRec] === 阶段 2：LLM 精排 ===")
     use_llm = _ollama_available(ollama_url)
@@ -255,7 +271,7 @@ def run_llm_rec_pipeline(
     else:
         print(
             f"[LLMRec] Ollama 不可用（{ollama_url}），"
-            "退化为 SASRec 召回结果（无 LLM 精排）。\n"
+            f"退化为 {recall_display} 召回结果（无 LLM 精排）。\n"
             "         若要启用 LLM，请先运行：ollama pull qwen2.5:7b && ollama serve"
         )
 
@@ -296,7 +312,10 @@ def run_llm_rec_pipeline(
         if uid not in recommendations:
             recommendations[uid] = []
 
-    model_name = f"LLMRec-{llm_model}" if use_llm else "LLMRec-fallback(SASRec)"
+    if use_llm:
+        model_name = f"LLMRec-{llm_model}<{recall_display}>"
+    else:
+        model_name = f"LLMRec-fallback({recall_display})"
     print(f"\n[LLMRec] 完成：{len(recommendations):,} 用户，模式 = {model_name}")
 
     rec_df = recommendations_to_dataframe(recommendations)
@@ -305,9 +324,9 @@ def run_llm_rec_pipeline(
         "model":    model_name,
         "n_users":  n_users,
         "n_items":  n_items,
-        "emb_dim":  sasrec_result["emb_dim"],
+        "emb_dim":  recall_result["emb_dim"],
         "top_k":    top_k,
-        "bpr_loss": sasrec_result["bpr_loss"],
+        "bpr_loss": recall_result["bpr_loss"],
         "rmse":     0.0,
         "recommendations":    recommendations,
         "recommendations_df": rec_df,
@@ -317,6 +336,8 @@ def run_llm_rec_pipeline(
         "_interaction_df":    df,
         "singular_values":    [],
         "_llm_used":          use_llm,
+        "_recall_model":      recall_model,
+        "_recall_model_name": recall_display,
     }
 
     if output_dir is not None:
@@ -337,14 +358,17 @@ def run_llm_rec_pipeline(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="LLM-based 推荐（SASRec召回 + LLM精排）。")
+    parser = argparse.ArgumentParser(description="LLM-based 推荐（召回模型 + LLM精排）。")
     parser.add_argument("--recall-k",    type=int,   default=DEFAULT_RECALL_K,
-                        help="SASRec 粗排候选数")
+                        help="召回模型粗排候选数")
     parser.add_argument("--top-k",       type=int,   default=DEFAULT_TOP_K,
                         help="最终返回推荐数")
     parser.add_argument("--llm-model",   type=str,   default=DEFAULT_LLM_MODEL,
                         help="Ollama 模型名，如 qwen2.5:7b / llama3:8b")
     parser.add_argument("--ollama-url",  type=str,   default=DEFAULT_OLLAMA_URL)
+    parser.add_argument("--recall-model", type=str, default=DEFAULT_RECALL_MODEL,
+                        choices=["sasrec", "cl4srec"],
+                        help="候选召回模型")
     parser.add_argument("--max-hist",    type=int,   default=DEFAULT_MAX_HIST)
     parser.add_argument("--n-epochs",    type=int,   default=50)
     parser.add_argument("--patience",    type=int,   default=5)
@@ -360,6 +384,7 @@ if __name__ == "__main__":
         top_k=args.top_k,
         llm_model=args.llm_model,
         ollama_url=args.ollama_url,
+        recall_model=args.recall_model,
         max_hist=args.max_hist,
         n_epochs=args.n_epochs,
         patience=args.patience,

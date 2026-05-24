@@ -74,7 +74,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 import traceback
@@ -95,10 +94,10 @@ LOG_PATH    = OUTPUT_DIR / "experiment.log"
 
 # ── 实验配置 ──────────────────────────────────────────────────────────
 #
-# 运行顺序：SASRec 先跑（是三个实验的对照组），结果可复用
+# 运行顺序：SASRec 先跑（是多个实验的对照组），结果可复用
 # 每个模型只训练一次，多个实验引用同一份结果
 #
-# 训练顺序（wbpr 不在此列，它的结果直接从上次实验加载）
+# 训练顺序（wbpr 不在此列，它的指标直接从上次实验加载）
 MODEL_ORDER = ["sasrec", "bert4rec", "sideinfo", "cl4srec", "llmrec"]
 
 # 实验对照定义：(对照组模型key, 实验组模型key, 实验ID, 实验说明)
@@ -118,6 +117,15 @@ DISPLAY_NAME = {
     "sideinfo": "SideInfo      (Step6)",
     "cl4srec":  "CL4SRec       (Step7)",
     "llmrec":   "LLMRec        (前沿)",
+}
+
+INFERENCE_CHECKPOINTS = {
+    "wbpr":     ("two_tower_wbpr_best.pt", "two_tower_wbpr_latest.pt"),
+    "sasrec":   ("sasrec_best.pt", "sasrec_latest.pt"),
+    "bert4rec": ("bert4rec_best.pt", "bert4rec_latest.pt"),
+    "sideinfo": ("sideinfo_best.pt", "sideinfo_latest.pt"),
+    "cl4srec":  ("cl4srec_best.pt", "cl4srec_latest.pt"),
+    "llmrec":   ("cl4srec_best.pt", "cl4srec_latest.pt"),
 }
 
 # WBPR 历史指标（上次实验已完成，直接硬编码结果）
@@ -214,6 +222,9 @@ def _save_result(model_key: str, metrics: dict, train_sec: float) -> None:
         "hit_rate":         None,
         "avg_watch_ratio":  None,
         "ndcg":             None,
+        "llm_used":         metrics.get("_llm_used"),
+        "recall_model":     metrics.get("_recall_model"),
+        "recall_model_name": metrics.get("_recall_model_name"),
     }
     with open(_result_path(model_key), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -233,6 +244,55 @@ def _update_result_metrics(model_key: str, eval_metrics: dict) -> None:
     })
     with open(p, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _has_inference_checkpoint(model_key: str) -> bool:
+    names = INFERENCE_CHECKPOINTS.get(model_key, ())
+    return any((CKPT_DIR / name).exists() for name in names)
+
+
+def _ensure_recommendations(
+    model_key: str,
+    all_recs: dict[str, dict],
+    top_k: int,
+    patience: int,
+) -> bool:
+    """确保指定模型的推荐列表可用；必要时从 checkpoint 恢复推理。"""
+    if model_key in all_recs:
+        return True
+
+    cached_recs = _load_recs(model_key)
+    if cached_recs is not None:
+        all_recs[model_key] = cached_recs
+        print(f"[INFO] {DISPLAY_NAME.get(model_key, model_key)} 推荐列表已从磁盘缓存恢复。")
+        return True
+
+    if not _has_inference_checkpoint(model_key):
+        print(
+            f"[WARN] {DISPLAY_NAME.get(model_key, model_key)} 缺少 recs 缓存，"
+            "且找不到可恢复推理的 checkpoint。"
+        )
+        return False
+
+    print(f"[INFO] {DISPLAY_NAME.get(model_key, model_key)} 缺少 recs 缓存，尝试从 checkpoint 重新推理……")
+    try:
+        result = _train_model(model_key, 0, top_k, patience)
+    except Exception as e:
+        print(f"[WARN] {DISPLAY_NAME.get(model_key, model_key)} 重新推理失败：{e}")
+        return False
+
+    all_recs[model_key] = result["recommendations"]
+    _save_recs(model_key, result["recommendations"])
+    if model_key == "llmrec":
+        current = _load_result(model_key) or {}
+        current.update({
+            "llm_used": result.get("_llm_used"),
+            "recall_model": result.get("_recall_model"),
+            "recall_model_name": result.get("_recall_model_name"),
+        })
+        with open(_result_path(model_key), "w", encoding="utf-8") as f:
+            json.dump(current, f, ensure_ascii=False, indent=2)
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -280,6 +340,7 @@ def _train_model(
         return run_llm_rec_pipeline(
             recall_k=top_k,
             top_k=top_k,
+            recall_model="cl4srec",
             n_epochs=n_epochs,
             patience=patience,
             output_dir=OUTPUT_DIR,
@@ -421,12 +482,9 @@ def main():
 
     # ── 确定要跑的模型 ────────────────────────────────────────────────
     if args.models:
-        run_keys = [k for k in args.models if k != "wbpr"]
+        run_keys = list(dict.fromkeys(args.models))
     else:
         run_keys = [k for k in MODEL_ORDER if k != "llmrec"] + (["llmrec"] if args.with_llm else [])
-
-    # wbpr 始终加在最前面（实验 A 的对照组），让显著性检验能拿到推荐列表
-    run_keys = ["wbpr"] + [k for k in run_keys if k != "wbpr"]
 
     print(f"  待训练模型：{run_keys}\n")
 
@@ -475,6 +533,8 @@ def main():
             # 持久化基础指标
             _save_result(model_key, result, elapsed)
             all_metrics[model_key] = _load_result(model_key)
+            if model_key == "llmrec" and not result.get("_llm_used", False):
+                print("  [WARN] 当前 LLMRec 未实际调用 Ollama，实验 E 只保留结果，不输出显著性结论。")
 
             print(f"\n[OK] {display} 训练完成，耗时 {elapsed/60:.1f} 分钟。")
 
@@ -504,16 +564,10 @@ def main():
             # 否则需要重新推理（跳过了训练但要评估）
             if model_key not in all_recs:
                 saved = _load_result(model_key)
-                if saved and saved.get("hit_rate") is not None:
+                if saved and saved.get("hit_rate") is not None and _load_recs(model_key) is not None:
                     print(f"[SKIP] {DISPLAY_NAME[model_key]} 评估结果已存在，跳过。")
                     continue
-                # 重新推理（0 epoch训练，直接加载 best checkpoint 推理）
-                print(f"[INFO] {DISPLAY_NAME[model_key]} 无内存推荐列表，重新推理……")
-                try:
-                    result = _train_model(model_key, 0, args.top_k, args.patience)
-                    all_recs[model_key] = result["recommendations"]
-                except Exception as e:
-                    print(f"[ERROR] 重新推理失败：{e}")
+                if not _ensure_recommendations(model_key, all_recs, args.top_k, args.patience):
                     continue
 
             recs    = all_recs[model_key]
@@ -528,15 +582,25 @@ def main():
             )
 
     # ── 逐实验显著性检验 ──────────────────────────────────────────────
-    if ground_truth and all_recs:
+    if ground_truth:
         print(f"\n{'━'*70}")
         print("  统计显著性检验（各实验对照组 vs 实验组）")
         print(f"{'━'*70}")
 
         sig_results: dict[str, dict] = {}
         for ctrl_key, exp_key, exp_id, description in EXPERIMENTS:
-            if ctrl_key not in all_recs or exp_key not in all_recs:
-                print(f"\n[SKIP] 实验 {exp_id}：{ctrl_key} 或 {exp_key} 的推荐列表不在内存中。")
+            if exp_key not in run_keys and ctrl_key not in run_keys:
+                continue
+
+            exp_meta = all_metrics.get(exp_key, {})
+            if exp_key == "llmrec" and exp_meta.get("llm_used") is False:
+                print(f"\n[SKIP] 实验 {exp_id}：LLMRec 当前未实际调用 Ollama，本轮不输出显著性结论。")
+                continue
+
+            ctrl_ok = _ensure_recommendations(ctrl_key, all_recs, args.top_k, args.patience)
+            exp_ok  = _ensure_recommendations(exp_key, all_recs, args.top_k, args.patience)
+            if not ctrl_ok or not exp_ok:
+                print(f"\n[SKIP] 实验 {exp_id}：{ctrl_key} 或 {exp_key} 的推荐列表不可恢复。")
                 continue
             sig = _significance_report(
                 ctrl_key=ctrl_key,

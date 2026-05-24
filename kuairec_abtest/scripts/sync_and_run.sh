@@ -11,14 +11,23 @@
 #    bash sync_and_run.sh --force      # 强制重跑（忽略已有结果）
 # ═══════════════════════════════════════════════════════════════════════
 
-# ── 服务器配置（与 memory 一致）────────────────────────────────────────
-SERVER="thisislbk@192.168.1.18"
-PORT="2222"
-REMOTE_DIR="~/kuairec_abtest"
-LOCAL_SCRIPTS="/Users/liubike/Desktop/快手test/kuairec_abtest/scripts"
+# ── 服务器配置（建议通过环境变量注入，避免把个人地址写进仓库）──────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVER="${KUAIREC_SERVER:-}"
+PORT="${KUAIREC_PORT:-2222}"
+REMOTE_DIR="${KUAIREC_REMOTE_DIR:-~/kuairec_abtest}"
+LOCAL_SCRIPTS="${KUAIREC_LOCAL_SCRIPTS:-$SCRIPT_DIR}"
 SSH="ssh -p $PORT $SERVER"
 LOG_FILE="$REMOTE_DIR/output/experiment.log"
 PID_FILE="$REMOTE_DIR/output/experiment.pid"
+
+if [ -z "$SERVER" ]; then
+    echo "[ERROR] 请先设置服务器地址，例如："
+    echo "  export KUAIREC_SERVER='user@your-host'"
+    echo "  export KUAIREC_PORT='2222'              # 可选"
+    echo "  export KUAIREC_REMOTE_DIR='~/kuairec_abtest'  # 可选"
+    exit 1
+fi
 
 # ── 解析参数 ─────────────────────────────────────────────────────────
 PY_ARGS=""
@@ -72,8 +81,8 @@ with open('\$f') as fp: d = json.load(fp)
 hr   = d.get('hit_rate')
 ndcg = d.get('ndcg')
 mins = d.get('train_min', 0)
-hr_str   = f'{hr:.4f}' if hr else 'pending'
-ndcg_str = f'{ndcg:.4f}' if ndcg else 'pending'
+hr_str   = f'{hr:.4f}' if hr is not None else 'pending'
+ndcg_str = f'{ndcg:.4f}' if ndcg is not None else 'pending'
 print(f\\\"  {d.get('model_key','?'):12s}  HR={hr_str}  NDCG={ndcg_str}  ({mins:.1f}min)\\\")
 \" 2>/dev/null || echo \"  \$(basename \$f)\"
 done

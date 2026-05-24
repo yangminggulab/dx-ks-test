@@ -35,7 +35,7 @@ AB Test 工程  →  SVD  →  TwoTower-BPR  →  TwoTower-WBPR  →  SASRec  �
 | BERT4Rec | `bert4rec.py` | 双向注意力 + Masked Item Prediction | **实验B**：SASRec → BERT4Rec |
 | SideInfo-SASRec | `sideinfo_rec.py` | ID + 视频类别/时长特征融合 | **实验C**：BERT4Rec → SideInfo |
 | CL4SRec | `cl4srec.py` | 对比学习（InfoNCE）+ 三种数据增强 | **实验D**：SideInfo → CL4SRec |
-| LLMRec | `llm_rec.py` | SASRec 召回 + 本地 LLM 精排 | **实验E**：CL4SRec → LLMRec |
+| LLMRec | `llm_rec.py` | CL4SRec 召回 + 本地 LLM 精排 | **实验E**：CL4SRec → LLMRec |
 
 ### 评估指标
 
@@ -64,7 +64,12 @@ pip install pandas numpy scipy scikit-learn torch
 **Mac 端一键操作**（代码同步 + 远程启动，断 SSH 不影响训练）：
 
 ```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest/scripts
+cd kuairec_abtest/scripts
+
+export KUAIREC_SERVER='user@your-host'
+# 可选：
+# export KUAIREC_PORT='2222'
+# export KUAIREC_REMOTE_DIR='~/kuairec_abtest'
 
 bash sync_and_run.sh           # 同步代码 + 启动全部实验（不含 LLM）
 bash sync_and_run.sh --status  # 查看进度 + 已完成模型指标
@@ -72,22 +77,18 @@ bash sync_and_run.sh --log     # 实时追看训练日志（Ctrl+C 停止查看�
 bash sync_and_run.sh --kill    # 停止训练（checkpoint 已保存，可续训）
 ```
 
-服务器配置（RTX 4060，WSL2）：
-- SSH：`thisislbk@192.168.1.18 -p 2222`
-- 代码路径：`~/kuairec_abtest/`
-
 ### 在本地直接训练
 
 ```bash
 cd kuairec_abtest/scripts
 
-# 全流程（Step3→4→5→6→7，不含 LLM）
+# 全流程（训练 Step4→5→6→7；Step3 基线从历史结果读取）
 python run_all_experiments.py
 
-# 含 LLM 精排（需先启动 Ollama）
+# 含 LLM 精排（CL4SRec 召回 + LLM 重排，需先启动 Ollama）
 python run_all_experiments.py --with-llm
 
-# 只训练指定模型
+# 只训练指定模型（不会自动补跑 WBPR）
 python run_all_experiments.py --models sasrec bert4rec
 
 # 快速验证（10 epoch）
@@ -103,6 +104,7 @@ python run_all_experiments.py --force
 
 - 已完成模型：从 `results/*.json` 跳过，推荐列表从 `results/*.pkl` 加载
 - 未完成模型：从 `checkpoints/*_latest.pt` 恢复到中断的 epoch
+- 若 `recs.pkl` 丢失但 checkpoint 仍在：会自动补推理，再继续显著性检验
 
 ---
 
@@ -184,7 +186,10 @@ ollama serve &
 python run_all_experiments.py --with-llm
 ```
 
-若 Ollama 未启动，LLMRec 自动 fallback 为 SASRec 召回结果（流水线不报错）。
+当前实现是 **CL4SRec 召回 + LLM 精排**。
+
+若 Ollama 未启动，LLMRec 会 fallback 为 `CL4SRec` 原始召回结果，流水线不报错；
+但这种情况下**不会输出实验 E 的显著性结论**，避免把“没跑到 LLM”误写成前沿实验结果。
 
 ---
 

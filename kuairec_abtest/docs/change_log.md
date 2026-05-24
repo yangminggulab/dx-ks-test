@@ -1,5 +1,39 @@
 # 项目变更日志
 
+## 2026-05-24
+
+### 修复 LLMRec 实验链路 + 断点恢复补推理 + README/启动脚本对齐
+
+**scripts/llm_rec.py（修改）**
+- 将 LLMRec 从“写成 CL4SRec 下一步、实际却走 SASRec 召回”修正为真正的 `CL4SRec + LLM 精排`。
+- 新增 `recall_model` 参数，当前支持 `sasrec / cl4srec`，默认仍保留兼容值，但主实验入口统一切到 `cl4srec`。
+- Ollama 不可用时，不再模糊描述为“随机重排”或让人误解成完整前沿实验，而是明确 fallback 到召回模型原始排序。
+- 结果里额外记录 `_llm_used`、`_recall_model`、`_recall_model_name`，供主调度器判断实验 E 是否真的跑到了 LLM。
+
+**scripts/run_all_experiments.py（修改）**
+- 修正实验 E 的实现：`llmrec` 分支现在显式使用 `recall_model="cl4srec"`。
+- `--models` 语义收口为“只训练指定模型”，不再偷偷把 `wbpr` 强行加回训练队列。
+- 新增推荐列表恢复逻辑：若 `results/*_recs.pkl` 丢失但 checkpoint 还在，会自动从 checkpoint 补推理，再继续评估/显著性检验。
+- 若 LLMRec 本轮未实际调用 Ollama，则跳过实验 E 的显著性结论，避免把 fallback 结果误当成 LLM 提升。
+- 结果 JSON 新增 `llm_used / recall_model / recall_model_name` 字段，便于断点恢复和事后核查。
+
+**scripts/eval_advanced.py（修改）**
+- 对齐主流程，LLMRec 的高级评估入口默认也改为 `CL4SRec` 召回，避免两个入口行为不一致。
+
+**scripts/sasrec.py / bert4rec.py / sideinfo_rec.py / cl4srec.py / two_tower.py（修改）**
+- 新增“仅推理模式保护”：
+  当 `n_epochs <= 0` 且不存在可恢复 checkpoint 时，直接报错，不再拿随机初始化权重生成推荐。
+- 这避免了断点恢复场景里最隐蔽的一类伪结果。
+
+**scripts/sync_and_run.sh（修改）**
+- 去掉仓库里的个人服务器地址和本机脚本绝对路径，改为使用 `KUAIREC_SERVER / KUAIREC_PORT / KUAIREC_REMOTE_DIR` 环境变量注入。
+- `--status` 输出里把 `0.0000` 这类合法指标也正确显示出来，不再因为 Python truthy 判断把它误打成 `pending`。
+
+**README.md（修改）**
+- 将 LLMRec 描述修正为 `CL4SRec 召回 + LLM 精排`，并明确写出 fallback 只保留结果、不输出实验 E 显著性结论。
+- 更新本地/远程启动说明，使 `--models`、断点恢复补推理、环境变量式服务器配置与真实代码一致。
+- 移除 README 中的个人 SSH 地址和本机绝对路径，降低仓库外发时的信息泄露风险。
+
 ## 2026-05-19
 
 ### 新增 SASRec 序列推荐模型 + 实验二对比框架
