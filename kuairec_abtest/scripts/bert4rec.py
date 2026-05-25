@@ -220,26 +220,16 @@ class BERT4Rec(nn.Module):
         """
         推理用：把序列最后一个位置替换为 [MASK]，取该位置的隐向量。
         返回 (batch, emb_dim) 归一化向量。
+
+        序列为左填充（PAD=0 在左，item 在右），最后一个真实 item
+        固定在最右端（位置 max_seq-1），直接在此处放 MASK 即可。
+        原代码错误地将 MASK 放在 lengths[b]-1 处（仍在 PAD 区域内）。
         """
         masked = seq.clone()
-        # 找每个样本最后一个非 PAD 位置，替换为 MASK
-        lengths = (seq != 0).sum(dim=1)   # (batch,)
-        for b in range(seq.size(0)):
-            last = int(seq.size(1)) - int(seq.size(1) - lengths[b])
-            if last > 0:
-                masked[b, last - 1] = MASK_TOKEN
-        out = self.encode(masked)   # (batch, L, D)
-        # 取 MASK 位置的向量
-        mask_pos = (masked == MASK_TOKEN)
-        # 有时多个位置有 MASK（训练），推理时只取最后一个
-        result = []
-        for b in range(seq.size(0)):
-            positions = mask_pos[b].nonzero(as_tuple=True)[0]
-            if len(positions) > 0:
-                result.append(out[b, positions[-1]])
-            else:
-                result.append(out[b, -1])
-        user_vec = torch.stack(result, dim=0)   # (batch, D)
+        # 序列左填充：最后一个真实 item 固定在最右端
+        masked[:, -1] = MASK_TOKEN
+        out = self.encode(masked)        # (batch, L, D)
+        user_vec = out[:, -1]            # 直接取最右位置的输出
         return F.normalize(user_vec, dim=-1)
 
     def get_item_vectors(self) -> torch.Tensor:
