@@ -6,11 +6,31 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 from sqlalchemy.engine import URL
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
+
+def _load_dotenv() -> None:
+    """从项目根目录的 .env 文件加载环境变量（不覆盖已存在的 os.environ 值）。"""
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    if not env_path.exists():
+        return
+    with open(env_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+
+
+_load_dotenv()
 
 DB_HOST = "localhost"
 DB_PORT = 3306
