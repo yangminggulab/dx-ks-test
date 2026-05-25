@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 from sqlalchemy.engine import URL
@@ -15,7 +16,7 @@ DB_HOST = "localhost"
 DB_PORT = 3306
 DB_NAME = "kuairec"
 DB_USER = "root"
-DB_PASSWORD = "@Lbk13121755130"
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
 DB_CHARSET = "utf8mb4"
 
 

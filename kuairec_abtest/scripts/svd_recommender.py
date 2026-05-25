@@ -52,7 +52,6 @@ if str(CURRENT_DIR) not in sys.path:
 def _find_big_matrix_csv() -> Path:
     candidates = [
         Path(__file__).resolve().parents[1] / "data" / "KuaiRec 2.0" / "data" / "big_matrix.csv",
-        Path("/Users/liubike/Desktop/快手test/kuairec_abtest/data/KuaiRec 2.0/data/big_matrix.csv"),
     ]
     for p in candidates:
         if p.exists():

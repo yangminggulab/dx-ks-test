@@ -63,7 +63,6 @@ from svd_recommender import (
 def _find_data_dir() -> Path:
     candidates = [
         Path(__file__).resolve().parents[1] / "data" / "KuaiRec 2.0" / "data",
-        Path("/Users/liubike/Desktop/快手test/kuairec_abtest/data/KuaiRec 2.0/data"),
     ]
     for p in candidates:
         if p.exists():
@@ -472,7 +471,7 @@ def run_two_tower_pipeline(
             neg_score = (u_emb * neg_emb).sum(-1)
 
             if weighted:
-                loss = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
+                loss = -(w_b.clamp(min=1e-8) * F.logsigmoid(pos_score - neg_score)).mean()
             else:
                 loss = -F.logsigmoid(pos_score - neg_score).mean()
 
@@ -500,7 +499,7 @@ def run_two_tower_pipeline(
                 pos_score = (u_emb * pos_emb).sum(-1)
                 neg_score = (u_emb * neg_emb).sum(-1)
                 if weighted:
-                    vl = -(w_b * F.logsigmoid(pos_score - neg_score)).mean()
+                    vl = -(w_b.clamp(min=1e-8) * F.logsigmoid(pos_score - neg_score)).mean()
                 else:
                     vl = -F.logsigmoid(pos_score - neg_score).mean()
                 val_total  += vl.item() * len(u_b)

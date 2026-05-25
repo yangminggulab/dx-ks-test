@@ -75,7 +75,6 @@ def _get_device() -> torch.device:
 def _find_data_dir() -> Path:
     candidates = [
         Path(__file__).resolve().parents[1] / "data" / "KuaiRec 2.0" / "data",
-        Path("/Users/liubike/Desktop/快手test/kuairec_abtest/data/KuaiRec 2.0/data"),
     ]
     for p in candidates:
         if p.exists():
