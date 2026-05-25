@@ -139,6 +139,13 @@ fi
 
 echo ""
 echo "  代码同步完成 ✓"
+
+# 同步 .env（不报错，文件不存在则跳过）
+ENV_FILE="$(dirname "$LOCAL_SCRIPTS")/.env"
+if [ -f "$ENV_FILE" ]; then
+    rsync -e "ssh -p $PORT" "$ENV_FILE" "$SERVER:$REMOTE_DIR/.env" 2>/dev/null \
+        && echo "  .env 已同步 ✓" || echo "  [WARN] .env 同步失败，请手动创建"
+fi
 echo ""
 
 # ── 检查已有训练进程 ──────────────────────────────────────────────────

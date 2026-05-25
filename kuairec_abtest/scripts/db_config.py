@@ -14,9 +14,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 
 def _load_dotenv() -> None:
-    """从项目根目录的 .env 文件加载环境变量（不覆盖已存在的 os.environ 值）。"""
-    env_path = Path(__file__).resolve().parents[2] / ".env"
-    if not env_path.exists():
+    """从项目根目录的 .env 文件加载环境变量（不覆盖已存在的 os.environ 值）。
+    按 parents[1]（kuairec_abtest/）、parents[2]（快手test/ 或 ~/）顺序查找。
+    """
+    script = Path(__file__).resolve()
+    candidates = [script.parents[1] / ".env", script.parents[2] / ".env"]
+    env_path = next((p for p in candidates if p.exists()), None)
+    if env_path is None:
         return
     with open(env_path, encoding="utf-8") as f:
         for line in f:
