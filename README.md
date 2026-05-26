@@ -193,14 +193,33 @@ python run_all_experiments.py --with-llm
 
 ---
 
-## 已知历史实验结果（Step3 基线）
+## 实验结果
 
-| 模型 | Hit Rate@50 | avg_watch_ratio | NDCG@50 |
+### 全链路指标汇总
+
+| 模型 | Hit Rate@50 | avg_watch_ratio@50 | NDCG@50 | vs 上一步 |
+|---|---|---|---|---|
+| TwoTower-BPR（参考） | 0.0060 | 0.0050 | 0.0008 | — |
+| TwoTower-WBPR（Step3 基线） | 0.0210 | 0.0172 | 0.0028 | +249% |
+| SASRec（Step4） | 0.0795 | 0.0755 | 0.0165 | **+490%** |
+| BERT4Rec（Step5） | 0.0012 | 0.0015 | 0.0002 | -98.7% |
+| SideInfo-SASRec（Step6） | **0.1286** | **0.1370** | **0.0256** | **+12017%** |
+| CL4SRec（Step7） | 0.0216 | 0.0246 | 0.0035 | -86.3% |
+
+### 显著性检验（Welch t-test）
+
+| 实验 | 对比 | p-value | 结论 |
 |---|---|---|---|
-| TwoTower-BPR | 0.0060 | 0.0050 | 0.0008 |
-| TwoTower-WBPR | 0.0210 | 0.0172 | 0.0028 |
+| 实验B | SASRec → BERT4Rec | <0.001 | 显著下降 |
+| 实验C | BERT4Rec → SideInfo | <0.001 | 显著提升 |
 
-WBPR 相对 BPR 提升约 +249%（NDCG），Step4 起以 WBPR 为基线做链式对比。
+### 关键发现
+
+**BERT4Rec 崩塌**：Hit Rate 从 0.0795 跌至 0.0012（-98.7%）。双向注意力 + Masked Item Prediction 在此数据集上严重过拟合，主因是序列较短（中位数约 5 步）、掩码训练信号稀疏。
+
+**SideInfo 最优**：引入视频类别和时长特征后，NDCG 从 0.0002 跳至 0.0256（+12017%），是全链路最大单步提升。特征融合在短视频场景收益显著。
+
+**CL4SRec 未超越 SideInfo**：150 epoch 训练后 best checkpoint 在 epoch 93，HR@50=0.0216，低于 50 epoch 的 0.0267。InfoNCE 对比学习 loss 与 HR@50 在此数据集上不相关；KuaiRec 2.0 高密度交互（矩阵密度 15%）使对比学习的稀疏数据增强收益有限。
 
 ---
 

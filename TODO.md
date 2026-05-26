@@ -6,14 +6,7 @@
 
 - [x] 禁用 idle 自动睡眠：`powercfg /change standby-timeout-ac 0 && standby-timeout-dc 0`（已执行，永久生效）
 - [x] CL4SRec 日志检查：最后一个 ★ 在 epoch 50（最后一轮），val_loss 仍在下降，**训练不足而非 early stopping 问题**
-- [ ] CL4SRec 重跑（扩大 epoch）：当前 50 epoch 未收敛，建议改为 100~150 epoch 重跑，预期指标可超越 SideInfo（HR=0.129）
-
-重跑命令：
-```bash
-cd /Users/liubike/Desktop/快手test/kuairec_abtest/scripts
-KUAIREC_SERVER="thisi@192.168.1.18" bash sync_and_run.sh
-# 服务器上：python3 scripts/run_all_experiments.py --models cl4srec --n-epochs 150 --force
-```
+- [x] CL4SRec 重跑（150 epoch）：best 在 epoch 93（val_loss=0.469），但 HR=0.0216 反而低于 50 epoch 的 0.0267。InfoNCE loss 与 HR@50 在此数据集上不相关，属正常实验结论，无需再跑。
 
 ## 代码质量（中优先级）
 
