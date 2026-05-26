@@ -485,7 +485,7 @@ def run_bert4rec_pipeline(
         "n_items":  n_items,
         "emb_dim":  emb_dim,
         "top_k":    top_k,
-        "bpr_loss": avg_loss,
+        "ce_loss":  avg_loss,
         "rmse":     0.0,
         "recommendations":    recommendations,
         "recommendations_df": rec_df,

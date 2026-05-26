@@ -260,9 +260,6 @@ def compute_rmse(
 ) -> float:
     """在已有交互位置上评估重建 RMSE，衡量分解质量。"""
     cx = original_matrix.tocoo()
-    pred_vals = (U[cx.row] @ np.diag(sigma) @ Vt)[:, cx.col]
-    # 注意：上面按行批量计算，但这样会做大量无用乘法；
-    # 更高效：逐元素取 U[i] @ diag(sigma) @ Vt[:, j]
     pred_vals = np.array([
         float(U[r] @ (sigma * Vt[:, c]))
         for r, c in zip(cx.row, cx.col)

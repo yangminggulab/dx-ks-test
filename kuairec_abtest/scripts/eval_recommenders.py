@@ -110,7 +110,7 @@ def evaluate(
         ndcgs.append(dcg / idcg if idcg > 0 else 0.0)
 
     result: dict[str, Any] = {
-        "n_users":          len(common_users),
+        "n_users":          len(hit_rates),
         "hit_rate":         float(np.mean(hit_rates)),
         "avg_watch_ratio":  float(np.mean(avg_wrs)),
         "ndcg":             float(np.mean(ndcgs)),
