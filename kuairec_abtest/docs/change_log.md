@@ -1,5 +1,22 @@
 # 项目变更日志
 
+## 2026-05-26（二）
+
+### CL4SRec 150 epoch 重跑结论 + README 实验结果更新
+
+**实验结论（CL4SRec）**
+- 扩大至 150 epoch，best checkpoint 在 epoch 93（val_loss=0.469），HR@50=0.0216，低于 50 epoch 的 0.0267。
+- 根因：InfoNCE 对比学习 loss 与 HR@50 在 KuaiRec 2.0 上不相关；矩阵密度 15% 使稀疏数据增强收益有限。
+- 结论：CL4SRec 在此数据集上不优于 SideInfo，属合理实验结果，无需继续调参。
+
+**README.md（更新）**
+- 删除"已知历史实验结果（Step3 基线）"旧节，替换为完整"实验结果"节。
+- 新增全链路指标汇总表（6 个模型）、显著性检验表、三条关键发现说明。
+
+**服务器维护**
+- 禁用 Windows 休眠：`powercfg /h off` + `hibernate-timeout-ac/dc = 0`，彻底解决训练中途机器入睡问题。
+- `sync_and_run.sh` 默认端口由 2222 改为 22（Windows 原生 OpenSSH）。
+
 ## 2026-05-26
 
 ### 代码质量修复（3 处）+ TODO 更新（idle sleep 根本原因及修复方案）
