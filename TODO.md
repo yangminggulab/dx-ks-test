@@ -1,33 +1,19 @@
 # 待办事项
 
-## 立即（明天 09:00 机器自动唤醒后）
+## 立即
 
 > 连接方式：`ssh win-local`（局域网）或 `ssh win`（外网 Tailscale）
 
-### ① 一次性修复：禁用 idle 自动睡眠（根本问题）
+- [x] 禁用 idle 自动睡眠：`powercfg /change standby-timeout-ac 0 && standby-timeout-dc 0`（已执行，永久生效）
+- [x] CL4SRec 日志检查：最后一个 ★ 在 epoch 50（最后一轮），val_loss 仍在下降，**训练不足而非 early stopping 问题**
+- [ ] CL4SRec 重跑（扩大 epoch）：当前 50 epoch 未收敛，建议改为 100~150 epoch 重跑，预期指标可超越 SideInfo（HR=0.129）
 
-机器当前会在唤醒后 ~19 分钟因无人操作触发 idle sleep 重新入睡，导致 SSH 断连、训练无法启动。
-原因：`powercfg` 的空闲睡眠计时器未关闭，与盖子/休眠设置无关。
-
-SSH 进去后在管理员 PowerShell 里跑一次（**永久生效，重启不丢失**）：
-
-```powershell
-powercfg /change standby-timeout-ac 0
-powercfg /change standby-timeout-dc 0
-```
-
-之后机器只会在 `DailySleep_2130` 任务（21:30）主动触发时才睡眠，不再自动掉线。
-
-### ② 同步代码 + 启动训练
-
+重跑命令：
 ```bash
 cd /Users/liubike/Desktop/快手test/kuairec_abtest/scripts
 KUAIREC_SERVER="thisi@192.168.1.18" bash sync_and_run.sh
+# 服务器上：python3 scripts/run_all_experiments.py --models cl4srec --n-epochs 150 --force
 ```
-
-### ③ 训练结束后
-
-- [ ] 查看 CL4SRec 日志：找最后一个 ★ 出现在第几 epoch，判断 early stopping 是否太早触发
 
 ## 代码质量（中优先级）
 
