@@ -14,7 +14,7 @@
 # ── 服务器配置（建议通过环境变量注入，避免把个人地址写进仓库）──────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER="${KUAIREC_SERVER:-}"
-PORT="${KUAIREC_PORT:-2222}"
+PORT="${KUAIREC_PORT:-22}"
 REMOTE_DIR="${KUAIREC_REMOTE_DIR:-~/kuairec_abtest}"
 LOCAL_SCRIPTS="${KUAIREC_LOCAL_SCRIPTS:-$SCRIPT_DIR}"
 SSH="ssh -p $PORT $SERVER"
