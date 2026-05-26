@@ -1,5 +1,24 @@
 # 项目变更日志
 
+## 2026-05-26
+
+### 代码质量修复（3 处）+ TODO 更新（idle sleep 根本原因及修复方案）
+
+**scripts/eval_recommenders.py（修复）**
+- `n_users` 字段从 `len(common_users)` 改为 `len(hit_rates)`。
+- 原来的写法把"有推荐但推荐列表为空（`not recs` 触发 continue）"的用户也计入 n_users，导致分母偏大、指标被低估。现在 n_users 与实际参与均值计算的用户数严格一致。
+
+**scripts/svd_recommender.py（修复）**
+- 删除 `compute_rmse` 里的死代码：第一行 `pred_vals = (U[cx.row] @ np.diag(sigma) @ Vt)[:, cx.col]` 及紧随其后的"更高效"注释，两者均被第二次赋值立刻覆盖，从未参与计算。
+
+**scripts/bert4rec.py（修复）**
+- 结果字典字段名 `"bpr_loss"` 改为 `"ce_loss"`。BERT4Rec 使用的是 CrossEntropy loss（Masked Item Prediction），原名与实际 loss 类型不符，易误导后续分析。
+
+**TODO.md（更新）**
+- 记录 Windows GPU 服务器 idle sleep 根本原因：`DailyWake_0900` 唤醒后约 19 分钟因无人操作触发电源计划 idle sleep 计时器重新入睡，与盖子/休眠设置无关。
+- 补充一次性修复命令（`powercfg /change standby-timeout-ac 0`），待下次 SSH 连通后执行。
+- 更正连接命令：用户名 `thisi`，走 `ssh win-local`，旧的 `thisislbk@:2222` WSL-sshd 方案已废弃。
+
 ## 2026-05-24
 
 ### 修复 LLMRec 实验链路 + 断点恢复补推理 + README/启动脚本对齐
