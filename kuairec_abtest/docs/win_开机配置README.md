@@ -1,148 +1,132 @@
-# Windows 4060 开机自启配置文档
+# Windows 4060 开机/唤醒自启配置
 
-每次开机 / 从睡眠唤醒后，需要以下四件事全部就绪：
+## 核心问题与解法
 
-| # | 项目 | 验证命令 | 预期结果 |
-|---|------|---------|---------|
-| 1 | sshd 服务运行中 | `Get-Service sshd` | Status = Running |
-| 2 | Tailscale 服务运行中 | `Get-Service Tailscale` | Status = Running |
-| 3 | idle sleep 禁用（不自动睡眠） | `powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE` | AC/DC 值均为 0x00000000 |
-| 4 | 休眠禁用（hibernate off） | `powercfg /a` | 休眠 = 未启用 |
+反复失败的根本原因有两个：
+
+**① `AtStartup` 触发器不管用**
+Windows 任务计划的"系统启动时"触发器只在**冷启动**时触发，从睡眠唤醒时完全不会触发。
+必须用**事件日志触发器**监听唤醒事件（System 日志 EventID=1）。
+
+**② sshd 唤醒后容易崩**
+网络栈重新初始化时 sshd 有时会失去绑定，必须配置**服务故障自动重启**作为兜底。
 
 ---
 
-## 第一步：创建启动脚本
+## 一次性配置（管理员 PowerShell 全部执行）
 
-在 Windows 上（管理员 PowerShell）新建文件：
-
-```
-C:\ProgramData\ssh\win_boot.ps1
-```
-
-内容：
+### 第一步：创建启动脚本
 
 ```powershell
-# Windows 4060 开机/唤醒启动脚本
-# 路径：C:\ProgramData\ssh\win_boot.ps1
+$script = @'
+# sshd
+if ((Get-Service sshd).Status -ne 'Running') { Start-Service sshd }
 
-# 1. 确保 sshd 在跑
-if ((Get-Service sshd).Status -ne 'Running') {
-    Start-Service sshd
-}
+# Tailscale
+$ts = Get-Service Tailscale -ErrorAction SilentlyContinue
+if ($ts -and $ts.Status -ne 'Running') { Start-Service Tailscale }
 
-# 2. 确保 Tailscale 在跑
-if ((Get-Service Tailscale -ErrorAction SilentlyContinue).Status -ne 'Running') {
-    Start-Service Tailscale
-}
-
-# 3. 禁用 idle 自动睡眠
+# 禁止 idle 睡眠
 powercfg /change standby-timeout-ac 0
 powercfg /change standby-timeout-dc 0
 
-# 4. 禁用休眠
-powercfg /change hibernate-timeout-ac 0
-powercfg /change hibernate-timeout-dc 0
+# 禁止休眠
 powercfg /h off
+'@
+$script | Out-File "C:\ProgramData\ssh\win_boot.ps1" -Encoding UTF8
 ```
 
----
-
-## 第二步：注册为任务计划（开机 + 唤醒均触发）
-
-管理员 PowerShell 里一次性运行：
+### 第二步：注册任务计划（冷启动 + 唤醒双触发，用 XML）
 
 ```powershell
-$action  = New-ScheduledTaskAction -Execute "powershell.exe" `
-               -Argument "-NonInteractive -WindowStyle Hidden -File C:\ProgramData\ssh\win_boot.ps1"
-
-$trigger1 = New-ScheduledTaskTrigger -AtStartup
-$trigger2 = New-ScheduledTaskTrigger -AtLogOn   # 兜底，Startup 有时不可靠
-
-$settings = New-ScheduledTaskSettingsSet `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 2) `
-    -StartWhenAvailable `
-    -WakeToRun
-
-$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
-
-Register-ScheduledTask `
-    -TaskName  "WinBoot4060" `
-    -Action    $action `
-    -Trigger   @($trigger1, $trigger2) `
-    -Settings  $settings `
-    -Principal $principal `
-    -Force
+# 唤醒事件：System 日志，Power-Troubleshooter，EventID=1
+$xml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>开机/唤醒后启动 sshd、Tailscale，禁用睡眠</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <BootTrigger>
+      <Delay>PT15S</Delay>
+    </BootTrigger>
+    <EventTrigger>
+      <Delay>PT10S</Delay>
+      <Subscription>&lt;QueryList&gt;&lt;Query Id="0" Path="System"&gt;&lt;Select Path="System"&gt;*[System[Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1]]&lt;/Select&gt;&lt;/Query&gt;&lt;/QueryList&gt;</Subscription>
+    </EventTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <ExecutionTimeLimit>PT2M</ExecutionTimeLimit>
+  </Settings>
+  <Actions>
+    <Exec>
+      <Command>powershell.exe</Command>
+      <Arguments>-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\ProgramData\ssh\win_boot.ps1"</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"@
+$xml | Out-File "$env:TEMP\WinBoot4060.xml" -Encoding Unicode
+schtasks /Create /TN "WinBoot4060" /XML "$env:TEMP\WinBoot4060.xml" /F
 ```
 
----
-
-## 第三步：验证注册成功
+### 第三步：配置 sshd 和 Tailscale 故障自动重启（兜底）
 
 ```powershell
-Get-ScheduledTask -TaskName "WinBoot4060" | Select-Object TaskName, State
-# 预期：State = Ready
-```
+# sshd：崩了 3 秒后自动重启，一天内最多 3 次
+sc.exe failure sshd reset= 86400 actions= restart/3000/restart/3000/restart/5000
 
----
+# Tailscale
+sc.exe failure Tailscale reset= 86400 actions= restart/5000/restart/5000/restart/10000
 
-## 逐项排查
-
-### ① sshd 没起来
-
-```powershell
-Get-Service sshd
-# 如果 Stopped：
-Start-Service sshd
-# 如果 StartType 不是 Automatic：
-Set-Service sshd -StartupType Automatic
-```
-
-### ② Tailscale 没起来
-
-```powershell
-Get-Service Tailscale
-Start-Service Tailscale
+# 确认两个服务都是自动启动
+Set-Service sshd     -StartupType Automatic
 Set-Service Tailscale -StartupType Automatic
 ```
 
-### ③ idle sleep 没禁掉（机器唤醒后自己又睡）
+---
+
+## 验证每一步是否成功
 
 ```powershell
-# 查当前值（应该都是 0）
-powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE
-# 重新设置
-powercfg /change standby-timeout-ac 0
-powercfg /change standby-timeout-dc 0
-```
+# 1. 任务计划是否注册成功
+Get-ScheduledTask -TaskName "WinBoot4060" | Select-Object TaskName, State
+# 预期：State = Ready
 
-### ④ 休眠没禁掉（机器深度睡眠后 ping 也不通）
-
-```powershell
-powercfg /a
-# 如果"休眠"还在可用列表里：
-powercfg /h off
-```
-
-### ⑤ WinBoot4060 任务没触发
-
-```powershell
-# 查上次运行时间和结果
-Get-ScheduledTaskInfo -TaskName "WinBoot4060" | Select-Object LastRunTime, LastTaskResult
-# LastTaskResult = 0 表示成功，其他值表示失败
-# 手动触发测试：
+# 2. 任务上次运行情况（手动触发测试）
 Start-ScheduledTask -TaskName "WinBoot4060"
+Start-Sleep 5
+Get-ScheduledTaskInfo -TaskName "WinBoot4060" | Select-Object LastRunTime, LastTaskResult
+# 预期：LastTaskResult = 0（成功）
+
+# 3. 服务状态
+Get-Service sshd, Tailscale | Select-Object Name, Status, StartType
+# 预期：Status = Running，StartType = Automatic
+
+# 4. 电源策略
+powercfg /a
+# 预期："休眠"在"以下睡眠状态在此系统上不可用"里
 ```
 
 ---
 
 ## 当前状态（2026-05-26）
 
-| 项目 | 状态 |
+| 步骤 | 状态 |
 |------|------|
-| sshd 开机自启 | ✅ Automatic（Windows 原生） |
-| Tailscale 开机自启 | ❓ 未确认 |
-| standby-timeout = 0 | ✅ 今日已执行 |
-| hibernate off | ✅ 今日已执行 |
-| WinBoot4060 任务计划 | ❌ 未注册（待执行第二步） |
+| standby-timeout = 0 | ✅ 已执行 |
+| hibernate off | ✅ 已执行 |
+| sshd Automatic 启动 | ✅ 原有配置 |
+| Tailscale Automatic 启动 | ❓ 未确认 |
+| sshd 故障自动重启 | ❌ 未配置 |
+| WinBoot4060 任务计划 | ❌ 未注册 |
 
-**下次连上后最需要做的一件事**：执行第二步，注册 `WinBoot4060` 任务计划。
+**连上后只需执行上面三步，约 1 分钟搞定，之后不需要再动。**
