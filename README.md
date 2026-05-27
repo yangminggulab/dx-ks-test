@@ -1,6 +1,6 @@
 # KuaiRec 推荐系统演进项目
 
-基于快手 KuaiRec 2.0 真实数据集，从零搭建完整的推荐系统技术演进链路，覆盖 AB Test 工程基础、传统协同过滤、深度序列推荐到 LLM 精排前沿方案。
+基于快手 KuaiRec 2.0 真实数据集，从零搭建完整的推荐系统技术演进链路，覆盖 AB Test 工程基础、传统协同过滤、深度序列推荐，全程以 A/B Test 验证各阶段提升的统计显著性。
 
 ---
 
@@ -66,9 +66,9 @@ pip install pandas numpy scipy scikit-learn torch
 ```bash
 cd kuairec_abtest/scripts
 
-export KUAIREC_SERVER='user@your-host'
-# 可选：
-# export KUAIREC_PORT='2222'
+export KUAIREC_SERVER='thisi@192.168.1.18'
+# 可选（默认值已够用，一般不需要改）：
+# export KUAIREC_PORT='22'
 # export KUAIREC_REMOTE_DIR='~/kuairec_abtest'
 
 bash sync_and_run.sh           # 同步代码 + 启动全部实验（不含 LLM）
@@ -135,7 +135,7 @@ python run_all_experiments.py --force
 
 | 脚本 | 用途 |
 |---|---|
-| `sync_and_run.sh` | Mac 端一键同步+启动（SSH → WSL2） |
+| `sync_and_run.sh` | Mac 端一键同步+启动（SSH → Windows OpenSSH → WSL2） |
 | `run_server.sh` | WSL2 服务器端启动脚本 |
 
 ### AB Test 工程基础

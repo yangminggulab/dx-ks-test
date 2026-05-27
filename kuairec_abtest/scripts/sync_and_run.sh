@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════
-#  Mac 端一键脚本：同步代码 → SSH 启动训练（RTX 4060 WSL2 服务器）
+#  Mac 端一键脚本：同步代码 → SSH 启动训练（RTX 4060，Windows OpenSSH → WSL2）
 #
 #  在 Mac 上运行：
 #    bash sync_and_run.sh           # 同步 + 启动（跑全部模型，不含LLM）
@@ -23,8 +23,8 @@ PID_FILE="$REMOTE_DIR/output/experiment.pid"
 
 if [ -z "$SERVER" ]; then
     echo "[ERROR] 请先设置服务器地址，例如："
-    echo "  export KUAIREC_SERVER='user@your-host'"
-    echo "  export KUAIREC_PORT='2222'              # 可选"
+    echo "  export KUAIREC_SERVER='thisi@192.168.1.18'"
+    echo "  export KUAIREC_PORT='22'               # 可选，默认 22"
     echo "  export KUAIREC_REMOTE_DIR='~/kuairec_abtest'  # 可选"
     exit 1
 fi
@@ -186,23 +186,24 @@ echo "  Step 3: 启动训练（nohup 后台，断 SSH 不影响）"
 echo "  参数：$PY_ARGS"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-TRAIN_PID=$($SSH "
-cd $REMOTE_DIR/scripts
-mkdir -p $REMOTE_DIR/output
-echo '=== 训练启动：'\$(date '+%Y-%m-%d %H:%M:%S')'===' >> $REMOTE_DIR/output/experiment.log
-nohup python3 -u run_all_experiments.py $PY_ARGS \
-    >> $REMOTE_DIR/output/experiment.log 2>&1 &
-echo \$!
-" 2>/dev/null)
+# 用 bash -c 显式启动，PID 写入文件再读回，避免 bash.exe 登录输出污染 $!
+$SSH "bash -c '
+    cd $REMOTE_DIR/scripts
+    mkdir -p $REMOTE_DIR/output
+    echo \"=== 训练启动：\$(date +\"%Y-%m-%d %H:%M:%S\")===\"  >> $REMOTE_DIR/output/experiment.log
+    nohup python3 -u run_all_experiments.py $PY_ARGS \
+        >> $REMOTE_DIR/output/experiment.log 2>&1 &
+    echo \$! > $PID_FILE
+'" 2>/dev/null
+
+sleep 2
+TRAIN_PID=$($SSH "cat $PID_FILE 2>/dev/null" 2>/dev/null)
 
 if [ -z "$TRAIN_PID" ]; then
     echo "[ERROR] 启动失败，请检查："
     $SSH "tail -20 $REMOTE_DIR/output/experiment.log" 2>/dev/null
     exit 1
 fi
-
-# 写 PID 文件
-$SSH "echo $TRAIN_PID > $PID_FILE"
 
 echo ""
 echo "  ✓ 训练已在后台启动（PID=$TRAIN_PID）"
