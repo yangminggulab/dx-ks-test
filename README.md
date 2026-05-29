@@ -110,26 +110,65 @@ python run_all_experiments.py --force
 
 ## 脚本说明
 
-### 核心模型
+### 目录结构（重构后）
+
+```text
+scripts/
+├── models/                         模型包（重构新增）
+│   ├── __init__.py                 导出所有模型类
+│   ├── base.py                     抽象基类 + 共享工具（ModelData, BaseRecommender）
+│   ├── kuairec_loader.py           统一数据加载（只读一次）
+│   ├── sasrec.py                   SASRec 模型类
+│   ├── bert4rec.py                 BERT4Rec 模型类
+│   ├── sideinfo.py                 SideInfo-SASRec 模型类
+│   ├── cl4srec.py                  CL4SRec 模型类
+│   └── two_tower.py                TwoTower 模型类（BPR / WBPR）
+├── run_experiments.py              新主程序（干净版，~150行纯调度逻辑）
+├── run_all_experiments.py          旧主程序（保留，向后兼容）
+├── eval_recommenders.py            离线评估核心函数（不动）
+└── ab_test.py                      Welch t-test 工具函数（不动）
+```
+
+### 新主程序：`run_experiments.py`
+
+```bash
+# 全流程（训练 Step4→5→6→7；Step3 基线从历史结果读取）
+python run_experiments.py
+
+# 只训练指定模型
+python run_experiments.py --models sasrec bert4rec
+
+# 快速验证（10 epoch）
+python run_experiments.py --n-epochs 10 --patience 3
+
+# 强制重跑（忽略已有 checkpoint）
+python run_experiments.py --force
+
+# 自定义 top-K
+python run_experiments.py --top-k 20
+```
+
+**新版优势**：数据只加载一次（`load_model_data()`），所有模型共享同一份 `ModelData`，
+避免重复 I/O。模型类继承 `BaseRecommender`，接口统一：`model.train()` + `model.recommend()`。
+
+### 兼容旧接口：`run_all_experiments.py`
+
+旧主程序保留不动，包含 LLM 精排（`--with-llm`）、更丰富的日志等功能，
+可继续使用：
+
+```bash
+python run_all_experiments.py              # 默认：跑全部，跳过 LLM
+python run_all_experiments.py --with-llm   # 包含 LLM 精排实验
+python run_all_experiments.py --models sasrec bert4rec
+```
+
+### 其他核心文件
 
 | 脚本 | 用途 |
 |---|---|
-| `sasrec.py` | SASRec 序列推荐（Step4） |
-| `bert4rec.py` | BERT4Rec 双向序列推荐（Step5） |
-| `sideinfo_rec.py` | SASRec + 视频侧特征（Step6） |
-| `cl4srec.py` | CL4SRec 对比学习（Step7） |
-| `llm_rec.py` | LLM 精排前沿方案 |
-| `two_tower.py` | TwoTower 双塔召回（Step3 基线） |
-| `svd_recommender.py` | SVD 协同过滤 |
-
-### 评估与实验
-
-| 脚本 | 用途 |
-|---|---|
-| `run_all_experiments.py` | **主入口**：全流程训练+评估+显著性检验 |
+| `svd_recommender.py` | SVD 协同过滤 + 数据加载工具（被 models/ 依赖） |
+| `llm_rec.py` | LLM 精排前沿方案（run_all_experiments.py 使用） |
 | `eval_advanced.py` | 单次多模型对比评估 |
-| `eval_recommenders.py` | 离线评估核心函数（load_ground_truth / evaluate） |
-| `ab_test.py` | Welch t-test 工具函数 |
 
 ### 运维脚本
 
