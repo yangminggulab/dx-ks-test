@@ -161,3 +161,19 @@ WBPR Hit Rate 0.0573→0.0008。Early Stopping 是此次修复的核心动作。
 - 第一版分析脚本新增曝光级汇总 CSV 与运行清单产出。
 - Tableau 导出清单补充实验版本与依赖文件说明。
 - 忽略 Tableau 自动恢复临时文件，避免干扰后续 Git 提交。
+
+## 2026-05-29
+
+**架构重构：scripts/models/ 模块化**
+
+- 新增 `scripts/models/` 包，将所有推荐模型从单文件脚本重构为独立类：
+  - `base.py`：`ModelData` dataclass + `BaseRecommender` 抽象基类，抽出 `get_device`、`build_user_sequences`、checkpoint 保存/加载等共享工具
+  - `kuairec_loader.py`：`load_model_data()` 统一数据加载入口，所有模型共享同一份 `ModelData`，消除重复 I/O
+  - `sasrec.py`、`bert4rec.py`、`sideinfo.py`、`cl4srec.py`、`two_tower.py`：各模型独立类，接口统一为 `train()` + `recommend()`
+- 新增 `scripts/run_experiments.py`（203 行纯调度逻辑）作为干净主程序，保留 `run_all_experiments.py` 向后兼容
+- 服务器验证：4 个模型全部跑通，指标与基线一致
+
+**实验数据更新**
+
+- BERT4Rec best checkpoint 重新评估：HR@50 更新为 0.0046（NDCG=0.0008），SideInfo vs上一步更新为 +3100%
+- README 同步更新
