@@ -59,6 +59,8 @@ PyTorch 2.x（CUDA 12.x 推荐）
 pip install pandas numpy scipy scikit-learn torch
 ```
 
+实验在配备 RTX 4060 的 Linux 服务器上训练，通过 `sync_and_run.sh` 实现 Mac 本地一键同步代码、远程启动训练、nohup 保活（断开 SSH 不影响进度）。
+
 ### 训练
 
 ```bash
