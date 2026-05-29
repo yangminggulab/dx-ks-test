@@ -30,11 +30,11 @@ AB Test 工程  →  SVD  →  TwoTower-BPR  →  TwoTower-WBPR  →  SASRec  �
 
 | 模型 | 文件 | 核心创新点 | 对照实验 |
 |---|---|---|---|
-| TwoTower-WBPR | `two_tower.py` | watch_ratio 加权 BPR | Step3 基线 |
-| SASRec | `sasrec.py` | 因果自注意力序列推荐 | **实验A**：WBPR → SASRec |
-| BERT4Rec | `bert4rec.py` | 双向注意力 + Masked Item Prediction | **实验B**：SASRec → BERT4Rec |
-| SideInfo-SASRec | `sideinfo_rec.py` | ID + 视频类别/时长特征融合 | **实验C**：BERT4Rec → SideInfo |
-| CL4SRec | `cl4srec.py` | 对比学习（InfoNCE）+ 三种数据增强 | **实验D**：SideInfo → CL4SRec |
+| TwoTower-WBPR | `models/two_tower.py` | watch_ratio 加权 BPR | Step3 基线 |
+| SASRec | `models/sasrec.py` | 因果自注意力序列推荐 | **实验A**：WBPR → SASRec |
+| BERT4Rec | `models/bert4rec.py` | 双向注意力 + Masked Item Prediction | **实验B**：SASRec → BERT4Rec |
+| SideInfo-SASRec | `models/sideinfo.py` | ID + 视频类别/时长特征融合 | **实验C**：BERT4Rec → SideInfo |
+| CL4SRec | `models/cl4srec.py` | 对比学习（InfoNCE）+ 三种数据增强 | **实验D**：SideInfo → CL4SRec |
 | LLMRec | `llm_rec.py` | CL4SRec 召回 + 本地 LLM 精排 | **实验E**：CL4SRec → LLMRec |
 
 ### 评估指标
