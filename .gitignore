@@ -16,3 +16,10 @@ __pycache__/
 # Project data and generated outputs
 kuairec_abtest/data/
 kuairec_abtest/output/
+
+# 私有文档（本地保留，不推送）
+TODO.md
+kuairec_abtest/docs/hstest.md
+kuairec_abtest/docs/tableau_setup.md
+kuairec_abtest/docs/win_开机配置README.md
+kuairec_abtest/docs/远程控制README.md

@@ -59,25 +59,7 @@ PyTorch 2.x（CUDA 12.x 推荐）
 pip install pandas numpy scipy scikit-learn torch
 ```
 
-### 在 GPU 服务器上训练（推荐）
-
-**Mac 端一键操作**（代码同步 + 远程启动，断 SSH 不影响训练）：
-
-```bash
-cd kuairec_abtest/scripts
-
-export KUAIREC_SERVER='thisi@192.168.1.18'
-# 可选（默认值已够用，一般不需要改）：
-# export KUAIREC_PORT='22'
-# export KUAIREC_REMOTE_DIR='~/kuairec_abtest'
-
-bash sync_and_run.sh           # 同步代码 + 启动全部实验（不含 LLM）
-bash sync_and_run.sh --status  # 查看进度 + 已完成模型指标
-bash sync_and_run.sh --log     # 实时追看训练日志（Ctrl+C 停止查看）
-bash sync_and_run.sh --kill    # 停止训练（checkpoint 已保存，可续训）
-```
-
-### 在本地直接训练
+### 训练
 
 ```bash
 cd kuairec_abtest/scripts
@@ -169,13 +151,6 @@ python run_all_experiments.py --models sasrec bert4rec
 | `svd_recommender.py` | SVD 协同过滤 + 数据加载工具（被 models/ 依赖） |
 | `llm_rec.py` | LLM 精排前沿方案（run_all_experiments.py 使用） |
 | `eval_advanced.py` | 单次多模型对比评估 |
-
-### 运维脚本
-
-| 脚本 | 用途 |
-|---|---|
-| `sync_and_run.sh` | Mac 端一键同步+启动（SSH → Windows OpenSSH → WSL2） |
-| `run_server.sh` | WSL2 服务器端启动脚本 |
 
 ### AB Test 工程基础
 
