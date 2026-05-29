@@ -205,15 +205,12 @@ tailscale status
 |------|------|
 | standby-timeout = 0 | ✅ 已执行 |
 | hibernate off | ✅ 已执行 |
-| sshd Automatic 启动 | ✅ 原有配置 |
-| Tailscale Automatic 启动 | ❓ 未确认 |
-| sshd 故障自动重启 | ❌ 未配置 |
-| sshd / Tailscale failureflag | ❌ 未配置 |
-| win_boot.ps1 ACL 收紧 | ❌ 未配置 |
-| Tailscale unattended mode | ❓ 未确认 |
-| SSH 仅公钥登录 | ❓ 未确认 |
-| SSH 防火墙范围收窄 | ❓ 未确认 |
-| WinBoot4060 任务计划 | ❌ 未注册 |
+| sshd Automatic 启动 | ✅ 已确认 |
+| Tailscale Automatic 启动 | ✅ 已确认 |
+| sshd 故障自动重启 | ✅ 已配置（3s/3s/5s） |
+| sshd / Tailscale failureflag | ✅ 已配置 |
+| win_boot.ps1 ACL 收紧 | ✅ 已配置 |
+| WinBoot4060 任务计划 | ✅ 已注册（Ready） |
 
 **连上后只需执行上面三步，约 1 分钟搞定，之后不需要再动。**
 
