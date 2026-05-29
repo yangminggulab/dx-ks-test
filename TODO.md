@@ -1,13 +1,5 @@
 # 待办事项
 
-## 立即
-
-> 连接方式：`ssh win-local`（局域网）或 `ssh win`（外网 Tailscale）
-
-- [x] 禁用 idle 自动睡眠：`powercfg /change standby-timeout-ac 0 && standby-timeout-dc 0`（已执行，永久生效）
-- [x] CL4SRec 日志检查：最后一个 ★ 在 epoch 50（最后一轮），val_loss 仍在下降，**训练不足而非 early stopping 问题**
-- [x] CL4SRec 重跑（150 epoch）：best 在 epoch 93（val_loss=0.469），但 HR=0.0216 反而低于 50 epoch 的 0.0267。InfoNCE loss 与 HR@50 在此数据集上不相关，属正常实验结论，无需再跑。
-
 ## 代码质量（中优先级）
 
 - [x] `eval_recommenders.py`：返回的 `n_users` 字段包含空推荐用户，与实际参与统计的用户数不一致，建议改为 `len(hit_rates)`
