@@ -23,14 +23,14 @@ kuairec_abtest/
 
 ```
 AB Test 工程  →  SVD  →  TwoTower-BPR  →  TwoTower-WBPR  →  SASRec  →  BERT4Rec  →  SideInfo  →  CL4SRec
-    (基础)       (协同)      (Step1)            (Step3)          (Step4)     (Step5)      (Step6)     (Step7)
+    (基础)       (协同)      (Step1)            (Step2)          (Step3)     (Step4)      (Step5)     (Step6)
 ```
 
 ### 模型说明
 
 | 模型 | 文件 | 核心创新点 | 对照实验 |
 |---|---|---|---|
-| TwoTower-WBPR | `models/two_tower.py` | watch_ratio 加权 BPR | Step3 基线 |
+| TwoTower-WBPR | `models/two_tower.py` | watch_ratio 加权 BPR | Step2 基线 |
 | SASRec | `models/sasrec.py` | 因果自注意力序列推荐 | **实验A**：WBPR → SASRec |
 | BERT4Rec | `models/bert4rec.py` | 双向注意力 + Masked Item Prediction | **实验B**：SASRec → BERT4Rec |
 | SideInfo-SASRec | `models/sideinfo.py` | ID + 视频类别/时长特征融合 | **实验C**：BERT4Rec → SideInfo |
@@ -65,7 +65,7 @@ pip install pandas numpy scipy scikit-learn torch
 ```bash
 cd kuairec_abtest/scripts
 
-# 全流程（训练 Step4→5→6→7；Step3 基线从历史结果读取）
+# 全流程（训练 Step3→4→5→6；Step2 基线从历史结果读取）
 python run_experiments.py
 
 # 只训练指定模型
@@ -112,7 +112,7 @@ scripts/
 ### 新主程序：`run_experiments.py`
 
 ```bash
-# 全流程（训练 Step4→5→6→7；Step3 基线从历史结果读取）
+# 全流程（训练 Step3→4→5→6；Step2 基线从历史结果读取）
 python run_experiments.py
 
 # 只训练指定模型
@@ -189,10 +189,10 @@ output/
 |---|---|---|---|---|
 | TwoTower-BPR（参考） | 0.0060 | 0.0050 | 0.0008 | — |
 | TwoTower-WBPR（Step3 基线） | 0.0210 | 0.0172 | 0.0028 | +249% |
-| SASRec（Step4） | 0.0795 | 0.0755 | 0.0165 | **+490%** |
-| BERT4Rec（Step5） | 0.0046 | 0.0056 | 0.0008 | -95.2% |
-| SideInfo-SASRec（Step6） | **0.1286** | **0.1370** | **0.0256** | **+3100%** |
-| CL4SRec（Step7） | 0.0216 | 0.0246 | 0.0035 | -86.3% |
+| SASRec（Step3） | 0.0795 | 0.0755 | 0.0165 | **+490%** |
+| BERT4Rec（Step4） | 0.0046 | 0.0056 | 0.0008 | -95.2% |
+| SideInfo-SASRec（Step5） | **0.1286** | **0.1370** | **0.0256** | **+3100%** |
+| CL4SRec（Step6） | 0.0216 | 0.0246 | 0.0035 | -86.3% |
 
 ### 显著性检验（Welch t-test）
 
