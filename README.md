@@ -22,8 +22,8 @@ kuairec_abtest/
 ## 推荐系统演进路线
 
 ```
-AB Test 工程  →  SVD  →  TwoTower-BPR  →  TwoTower-WBPR  →  SASRec  →  BERT4Rec  →  SideInfo  →  CL4SRec  →  LLMRec
-    (基础)       (协同)      (Step1)            (Step3)          (Step4)     (Step5)      (Step6)     (Step7)     (前沿)
+AB Test 工程  →  SVD  →  TwoTower-BPR  →  TwoTower-WBPR  →  SASRec  →  BERT4Rec  →  SideInfo  →  CL4SRec
+    (基础)       (协同)      (Step1)            (Step3)          (Step4)     (Step5)      (Step6)     (Step7)
 ```
 
 ### 模型说明
@@ -35,7 +35,6 @@ AB Test 工程  →  SVD  →  TwoTower-BPR  →  TwoTower-WBPR  →  SASRec  �
 | BERT4Rec | `models/bert4rec.py` | 双向注意力 + Masked Item Prediction | **实验B**：SASRec → BERT4Rec |
 | SideInfo-SASRec | `models/sideinfo.py` | ID + 视频类别/时长特征融合 | **实验C**：BERT4Rec → SideInfo |
 | CL4SRec | `models/cl4srec.py` | 对比学习（InfoNCE）+ 三种数据增强 | **实验D**：SideInfo → CL4SRec |
-| LLMRec | `llm_rec.py` | CL4SRec 召回 + 本地 LLM 精排 | **实验E**：CL4SRec → LLMRec |
 
 ### 评估指标
 
@@ -67,19 +66,16 @@ pip install pandas numpy scipy scikit-learn torch
 cd kuairec_abtest/scripts
 
 # 全流程（训练 Step4→5→6→7；Step3 基线从历史结果读取）
-python run_all_experiments.py
+python run_experiments.py
 
-# 含 LLM 精排（CL4SRec 召回 + LLM 重排，需先启动 Ollama）
-python run_all_experiments.py --with-llm
-
-# 只训练指定模型（不会自动补跑 WBPR）
-python run_all_experiments.py --models sasrec bert4rec
+# 只训练指定模型
+python run_experiments.py --models sasrec bert4rec
 
 # 快速验证（10 epoch）
-python run_all_experiments.py --n-epochs 10 --patience 3
+python run_experiments.py --n-epochs 10 --patience 3
 
 # 强制重跑（忽略已有 checkpoint）
-python run_all_experiments.py --force
+python run_experiments.py --force
 ```
 
 ### 断点续训
@@ -137,12 +133,10 @@ python run_experiments.py --top-k 20
 
 ### 兼容旧接口：`run_all_experiments.py`
 
-旧主程序保留不动，包含 LLM 精排（`--with-llm`）、更丰富的日志等功能，
-可继续使用：
+旧主程序保留不动，接口与 `run_experiments.py` 兼容，可继续使用：
 
 ```bash
-python run_all_experiments.py              # 默认：跑全部，跳过 LLM
-python run_all_experiments.py --with-llm   # 包含 LLM 精排实验
+python run_all_experiments.py              # 默认：跑全部
 python run_all_experiments.py --models sasrec bert4rec
 ```
 
@@ -151,7 +145,6 @@ python run_all_experiments.py --models sasrec bert4rec
 | 脚本 | 用途 |
 |---|---|
 | `svd_recommender.py` | SVD 协同过滤 + 数据加载工具（被 models/ 依赖） |
-| `llm_rec.py` | LLM 精排前沿方案（run_all_experiments.py 使用） |
 | `eval_advanced.py` | 单次多模型对比评估 |
 
 ### AB Test 工程基础
@@ -185,27 +178,6 @@ output/
 ├── all_models_comparison.csv   全模型汇总对比表
 └── experiment.log              训练全程日志
 ```
-
----
-
-## LLM 精排说明
-
-LLMRec 使用本地 Ollama 运行，无需 API key：
-
-```bash
-# 服务器上安装并启动
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5:7b
-ollama serve &
-
-# 然后启动实验
-python run_all_experiments.py --with-llm
-```
-
-当前实现是 **CL4SRec 召回 + LLM 精排**。
-
-若 Ollama 未启动，LLMRec 会 fallback 为 `CL4SRec` 原始召回结果，流水线不报错；
-但这种情况下**不会输出实验 E 的显著性结论**，避免把“没跑到 LLM”误写成前沿实验结果。
 
 ---
 
